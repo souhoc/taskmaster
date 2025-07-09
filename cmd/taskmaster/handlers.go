@@ -10,7 +10,7 @@ import (
 	"github.com/souhoc/taskmaster/term"
 )
 
-// TODO: Commands:
+// Commands:
 // [x] reload
 // [x] status
 // [x] start

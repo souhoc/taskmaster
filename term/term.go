@@ -227,7 +227,6 @@ func (t *Term) Run() {
 
 		if input != "" {
 			t.addToHistory(input)
-			// TODO: exec cmd
 			if err := t.executeCmd(input); err != nil {
 				if err == Exit {
 					break
