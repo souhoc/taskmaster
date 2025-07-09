@@ -3,6 +3,9 @@
   "title": "taskmaster config",
   "type": "object",
   "properties": {
+    "webhook": {
+      "type": "string"
+    },
     "tasks": {
       "type": "object",
       "items": {
@@ -104,6 +107,6 @@
     }
   },
   "required": [
-    "programs"
+    "tasks"
   ]
 }
