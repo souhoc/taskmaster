@@ -60,6 +60,7 @@ func (c *Config) Reload() (old *Config, err error) {
 	}
 
 	if !c.Compare(newCfg) {
+		old = new(Config)
 		*old = *c
 		*c = newCfg
 		return old, nil
