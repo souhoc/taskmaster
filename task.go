@@ -7,6 +7,28 @@ import (
 	"strings"
 )
 
+const (
+	maxNumProcs = 99
+
+	AutoRestartAlways     autoRestartValue = "always"
+	AutoRestartNever      autoRestartValue = "never"
+	AutoRestartUnexpecter autoRestartValue = "unexpected"
+)
+
+var (
+	taskPropertiesNeedRestart = []string{
+		"Cmd",
+		"Args",
+		"Umask",
+		"WorkingDir",
+		"Stdout",
+		"Stderr",
+		"Env",
+	}
+)
+
+type autoRestartValue string
+
 type Task struct {
 	Cmd          string            `yaml:"cmd"`
 	Args         []string          `yaml:"args"`
@@ -14,7 +36,7 @@ type Task struct {
 	Umask        int               `yaml:"umask"`
 	WorkingDir   string            `yaml:"workingdir"`
 	AutoStart    bool              `yaml:"autostart"`
-	AutoRestart  string            `yaml:"autorestart"`
+	AutoRestart  autoRestartValue  `yaml:"autorestart"`
 	ExitCodes    []int             `yaml:"exitcodes"`
 	StartRetries int               `yaml:"startretries"`
 	StartTime    int               `yaml:"starttime"`
@@ -25,6 +47,8 @@ type Task struct {
 	Env          map[string]string `yaml:"env"`
 }
 
+// Compare checks if two Task instances are identical in all fields.
+// It returns true if all fields are equal, otherwise it returns false.
 func (t Task) Compare(u Task) bool {
 	return t.Cmd == u.Cmd &&
 		reflect.DeepEqual(t.Args, u.Args) &&
@@ -41,6 +65,61 @@ func (t Task) Compare(u Task) bool {
 		t.Stdout == u.Stdout &&
 		t.Stderr == u.Stderr &&
 		reflect.DeepEqual(t.Env, u.Env)
+}
+
+// Diff compares two Task instances and returns a slice of strings
+// indicating the names of fields that differ between the two tasks.
+// This method is useful for identifying specific differences between task configurations.
+func (t Task) Diff(u Task) []string {
+	var differences []string
+
+	if t.Cmd != u.Cmd {
+		differences = append(differences, "Cmd")
+	}
+	if !reflect.DeepEqual(t.Args, u.Args) {
+		differences = append(differences, "Args")
+	}
+	if t.NumProcs != u.NumProcs {
+		differences = append(differences, "NumProcs")
+	}
+	if t.Umask != u.Umask {
+		differences = append(differences, "Umask")
+	}
+	if t.WorkingDir != u.WorkingDir {
+		differences = append(differences, "WorkingDir")
+	}
+	if t.AutoStart != u.AutoStart {
+		differences = append(differences, "AutoStart")
+	}
+	if t.AutoRestart != u.AutoRestart {
+		differences = append(differences, "AutoRestart")
+	}
+	if !reflect.DeepEqual(t.ExitCodes, u.ExitCodes) {
+		differences = append(differences, "ExitCodes")
+	}
+	if t.StartRetries != u.StartRetries {
+		differences = append(differences, "StartRetries")
+	}
+	if t.StartTime != u.StartTime {
+		differences = append(differences, "StartTime")
+	}
+	if t.StopSignal != u.StopSignal {
+		differences = append(differences, "StopSignal")
+	}
+	if t.StopTime != u.StopTime {
+		differences = append(differences, "StopTime")
+	}
+	if t.Stdout != u.Stdout {
+		differences = append(differences, "Stdout")
+	}
+	if t.Stderr != u.Stderr {
+		differences = append(differences, "Stderr")
+	}
+	if !reflect.DeepEqual(t.Env, u.Env) {
+		differences = append(differences, "Env")
+	}
+
+	return differences
 }
 
 func (t Task) String() string {

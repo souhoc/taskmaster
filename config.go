@@ -37,6 +37,15 @@ func (c *Config) Init(args []string) error {
 		return fmt.Errorf("config: %w", err)
 	}
 
+	for name, task := range c.Tasks {
+		if task.NumProcs > maxNumProcs {
+			return fmt.Errorf("config: too many process: task %s has %d", name, task.NumProcs)
+		}
+		if task.NumProcs == 0 {
+			task.NumProcs = 1
+		}
+	}
+
 	return nil
 }
 
