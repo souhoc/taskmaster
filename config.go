@@ -1,7 +1,6 @@
 package taskmaster
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -30,12 +29,12 @@ func (c *Config) Init(args []string) error {
 
 	f, err := os.Open(configPath)
 	if err != nil {
-		return errors.Join(errors.New("config error"), err)
+		return fmt.Errorf("config: %w", err)
 	}
 	defer f.Close()
 
 	if err := yaml.NewDecoder(f).Decode(c); err != nil {
-		return errors.Join(errors.New("config error"), err)
+		return fmt.Errorf("config: %w", err)
 	}
 
 	return nil
@@ -45,18 +44,18 @@ func (c *Config) Init(args []string) error {
 // It would mess with the mutex.
 func (c *Config) Reload() (old *Config, err error) {
 	if configPath == "" {
-		return nil, fmt.Errorf("config file missing")
+		return nil, fmt.Errorf("config: file missing")
 	}
 
 	f, err := os.Open(configPath)
 	if err != nil {
-		return nil, errors.Join(errors.New("config error"), err)
+		return nil, fmt.Errorf("config: %w", err)
 	}
 	defer f.Close()
 
 	var newCfg Config
 	if err := yaml.NewDecoder(f).Decode(&newCfg); err != nil {
-		return nil, errors.Join(errors.New("config error"), err)
+		return nil, fmt.Errorf("config: %w", err)
 	}
 
 	if !c.Compare(newCfg) {
