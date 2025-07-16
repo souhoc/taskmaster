@@ -58,7 +58,7 @@ func newStatusHandler(s *taskmaster.Service) term.CmdHandler {
 		}
 
 		if len(errs) > 0 {
-			return fmt.Errorf("%s: couldn't reload config: %v", args[0], errors.Join(errs...))
+			return fmt.Errorf("%s: couldn't reload config: %w", args[0], errors.Join(errs...))
 		}
 
 		return nil
@@ -69,7 +69,7 @@ func newReloadHandler(service *taskmaster.Service) term.CmdHandler {
 	return func(args ...string) error {
 		changed, err := service.ReloadConfig()
 		if err != nil {
-			return fmt.Errorf("%s: couldn't reload config: %v", args[0], err)
+			return fmt.Errorf("%s: couldn't reload config: %w", args[0], err)
 		}
 		log.Printf("config reloaded? %t\n", changed)
 		return nil
@@ -84,7 +84,7 @@ func newStartHandler(s *taskmaster.Service) term.CmdHandler {
 
 		cmd, err := s.Start(args[1])
 		if err != nil {
-			return fmt.Errorf("%s: %v", args[0], err)
+			return fmt.Errorf("%s: %w", args[0], err)
 		}
 		log.Printf("New cmd running: %s %d\n", args[1], cmd.Process.Pid)
 
@@ -105,9 +105,9 @@ func newStopHandler(s *taskmaster.Service) term.CmdHandler {
 				} else {
 					fmt.Printf("couldnt stop %s\n", arg)
 				}
-				return fmt.Errorf("%s: couldnt stop %s: %v", args[0], arg, err)
+				return fmt.Errorf("%s: couldnt stop %s: %w", args[0], arg, err)
 			}
-			log.Printf("%s: stopped cmd: %s", args[0], arg)
+			log.Printf("%s: stopped cmd: %s\n", args[0], arg)
 		}
 
 		return nil
