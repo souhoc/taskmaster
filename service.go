@@ -79,9 +79,9 @@ func (s *Service) Start(name string) (*exec.Cmd, error) {
 	if task.Stdout == "" {
 		cmd.Stdout = s.out
 	} else {
-		file, err := os.OpenFile(task.Stderr, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		file, err := os.OpenFile(task.Stdout, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
-			return nil, fmt.Errorf("service: failed to open stdout file %s: %w", task.Stderr, err)
+			return nil, fmt.Errorf("service: failed to open stdout file %s: %w", task.Stdout, err)
 		}
 		cmd.Stdout = file
 	}
