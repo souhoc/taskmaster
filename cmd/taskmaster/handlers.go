@@ -46,7 +46,7 @@ func newStatusHandler(s *taskmaster.Service) term.CmdHandler {
 		for _, arg := range args[1:] {
 			cmd, err := s.Get(arg)
 			if err != nil {
-				if err == taskmaster.UnknowTask {
+				if err == taskmaster.ErrTaskUnknow {
 					fmt.Printf("unknow cmd: %s\n", arg)
 					log.Printf("%s: unknow cmd: %s\n", args[0], arg)
 				}
@@ -100,7 +100,7 @@ func newStopHandler(s *taskmaster.Service) term.CmdHandler {
 
 		for _, arg := range args[1:] {
 			if err := s.Stop(arg); err != nil {
-				if err == taskmaster.UnknowTask {
+				if err == taskmaster.ErrTaskUnknow {
 					fmt.Printf("unknow task: %s\n", arg)
 				} else {
 					fmt.Printf("couldnt stop %s\n", arg)

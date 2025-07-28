@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/rpc"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 
@@ -27,7 +26,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := taskmaster.New(len(cfg.Tasks))
+	service := taskmaster.New(&cfg)
 
 	startConfigTasks(cfg, service)
 
@@ -55,17 +54,16 @@ func main() {
 	handleConns(lis)
 }
 
-func startConfigTasks(cfg taskmaster.Config, service *taskmaster.TaskMaster) {
-	for taskName, task := range cfg.Tasks {
-		log.Printf("running %s...\n", taskName)
-		var rep exec.Cmd
-		if err := service.Start(task, &rep); err != nil {
-			log.Printf("error running task: %v\n", err)
-		}
-	}
+func startConfigTasks(cfg taskmaster.Config, service *taskmaster.Service) {
+	// for taskName, task := range cfg.Tasks {
+	// 	log.Printf("running %s...\n", taskName)
+	// 	if err := service.Start(task); err != nil {
+	// 		log.Printf("error running task: %v\n", err)
+	// 	}
+	// }
 }
 
-func handleEvents(sigChan chan os.Signal, service *taskmaster.TaskMaster, lis net.Listener) {
+func handleEvents(sigChan chan os.Signal, service *taskmaster.Service, lis net.Listener) {
 	for {
 		select {
 		case s := <-sigChan:

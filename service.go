@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -48,11 +50,11 @@ func (s *Service) Start(name string) (*exec.Cmd, error) {
 
 	task, exists := s.cfg.Tasks[name]
 	if !exists {
-		return nil, UnknowTask
+		return nil, ErrTaskUnknow
 	}
 
 	if cmd, exists := s.cmds[name]; exists && cmd.Process != nil {
-		return nil, fmt.Errorf("service: task %s is already running\n", name)
+		return nil, fmt.Errorf("service: %w", ErrTaskAlreadyRunning)
 	}
 
 	cmd := exec.CommandContext(s.Ctx, task.Cmd, task.Args...)
@@ -107,6 +109,75 @@ func (s *Service) Start(name string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+func (s *Service) StartV2(name string) ([]*exec.Cmd, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.cfg.Tasks[name]
+	if !exists {
+		return nil, ErrTaskUnknow
+	}
+
+	var cmds []*exec.Cmd
+	for i := range task.NumProcs {
+		processName := fmt.Sprintf("%s-%02d", name, i)
+		if cmd, exists := s.cmds[processName]; exists && cmd.Process != nil {
+			return nil, fmt.Errorf("service: %w", ErrTaskAlreadyRunning)
+
+		}
+
+		cmd := exec.CommandContext(s.Ctx, task.Cmd, task.Args...)
+		cmd.Args[0] = processName
+
+		if task.WorkingDir != "" {
+			cmd.Dir = task.WorkingDir
+		}
+
+		if len(task.Env) > 0 {
+			env := os.Environ()
+			for k, v := range task.Env {
+				env = append(env, fmt.Sprintf("%s=%s", k, v))
+			}
+			cmd.Env = env
+		}
+
+		if task.Umask != 0 {
+			oldUmask := syscall.Umask(task.Umask)
+			defer syscall.Umask(oldUmask)
+		}
+
+		if task.Stdout == "" {
+			cmd.Stdout = s.out
+		} else {
+			file, err := os.OpenFile(task.Stdout, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				return nil, fmt.Errorf("service: failed to open stdout file %s: %w", task.Stdout, err)
+			}
+			cmd.Stdout = file
+		}
+
+		if task.Stderr == "" {
+			cmd.Stderr = s.out
+		} else {
+			file, err := os.OpenFile(task.Stderr, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				return nil, fmt.Errorf("service: failed to open stderr file %s: %w", task.Stderr, err)
+			}
+			cmd.Stderr = file
+		}
+
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("service: couldn't start cmd %s: %w", processName, err)
+		}
+
+		s.cmds[processName] = cmd
+		go s.handleTaskCompletion(processName, task, cmd)
+		cmds = append(cmds, cmd)
+	}
+
+	return cmds, nil
+}
+
 func (s *Service) handleTaskCompletion(name string, task *Task, cmd *exec.Cmd) {
 	err := cmd.Wait()
 
@@ -151,7 +222,7 @@ func (s *Service) Stop(name string) error {
 
 	task, exists := s.cfg.Tasks[name]
 	if !exists {
-		return UnknowTask
+		return ErrTaskUnknow
 	}
 
 	cmd, exists := s.cmds[name]
@@ -211,6 +282,84 @@ func (s *Service) Stop(name string) error {
 		return fmt.Errorf("service: task %s was forcibly killed after timeout", name)
 	}
 }
+func (s *Service) StopV2(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.cfg.Tasks[name]
+	if !exists {
+		return ErrTaskUnknow
+	}
+
+	var errs []error
+	for cmdName, cmd := range s.cmds {
+		if !strings.HasPrefix(cmdName, name+"-") && cmdName != name {
+			continue
+		}
+		if cmd.Process == nil {
+			errs = append(errs, fmt.Errorf("sercice: task %s is not running", cmdName))
+			continue
+		}
+
+		signal := syscall.SIGTERM
+		if task.StopSignal != "" {
+			switch task.StopSignal {
+			case "TERM", "SIGTERM":
+				signal = syscall.SIGTERM
+			case "INT", "SIGINT":
+				signal = syscall.SIGINT
+			case "KILL", "SIGKILL":
+				signal = syscall.SIGKILL
+			case "HUP", "SIGHUP":
+				signal = syscall.SIGHUP
+			case "USR1", "SIGUSR1":
+				signal = syscall.SIGUSR1
+			case "USR2", "SIGUSR2":
+				signal = syscall.SIGUSR2
+			default:
+				errs = append(errs, fmt.Errorf("service: unsupported stop signal: %s", task.StopSignal))
+				continue
+			}
+		}
+
+		if err := cmd.Process.Signal(signal); err != nil {
+			errs = append(errs, fmt.Errorf("service: failed to send signal to task %s: %w", cmdName, err))
+			continue
+		}
+
+		// Wait for the process to exit gracefully, or force kill after timeout
+		stopTimeout := time.Duration(task.StopTime) * time.Second
+		if stopTimeout <= 0 {
+			stopTimeout = defaultTimeout
+		}
+
+		done := make(chan error, 1)
+		go func() {
+			done <- cmd.Wait()
+		}()
+
+		select {
+		case err := <-done:
+			delete(s.cmds, cmdName)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("service: task %s exited with error: %w", cmdName, err))
+			}
+		case <-time.After(stopTimeout):
+			if err := cmd.Process.Kill(); err != nil {
+				errs = append(errs, fmt.Errorf("service: failed to kill task %s: %w", cmdName, err))
+			}
+			delete(s.cmds, cmdName)
+			errs = append(errs, fmt.Errorf("service: task %s was forcibly killed after timeout", cmdName))
+		}
+
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors stopping tasks: %w", errors.Join(errs...))
+	}
+
+	return nil
+}
 
 func (s *Service) Get(name string) (*exec.Cmd, error) {
 	s.mu.Lock()
@@ -218,7 +367,7 @@ func (s *Service) Get(name string) (*exec.Cmd, error) {
 
 	cmd, exists := s.cmds[name]
 	if !exists {
-		return nil, UnknowTask
+		return nil, ErrTaskUnknow
 	}
 
 	return cmd, nil
@@ -310,13 +459,72 @@ func (s *Service) Close() error {
 
 func (s *Service) ReloadConfig() (changed bool, err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	old, err := s.cfg.Reload()
-	// TODO: se what need to be done in service on change
-	// - [ ] if a task doesnt exist, the cmd has to be closed
+	if old == nil {
+		return false, err
+	}
 
-	return old != nil, err
+	var errs []error
+	for name := range s.cmds {
+		newTask, newExists := s.cfg.Tasks[name]
+		oldTask, oldExists := old.Tasks[name]
+
+		// Stop cmds that doesnt exists anymore
+		if !newExists {
+			s.mu.Unlock()
+			if err := s.Stop(name); err != nil {
+				errs = append(errs, err)
+			} else {
+				log.Printf("Stopped cmd: %s\n", name)
+			}
+			s.mu.Lock()
+		}
+
+		// Start new cmds
+		if newExists && !oldExists {
+			s.mu.Unlock()
+			if cmd, err := s.Start(name); err != nil {
+				errs = append(errs, err)
+			} else {
+				log.Printf("New cmd running: %s %d\n", name, cmd.Process.Pid)
+			}
+			s.mu.Lock()
+		}
+
+		// Update already existing cmds
+		if newExists && oldExists {
+			diff := newTask.Diff(*oldTask)
+			if len(diff) == 0 {
+				continue
+			}
+			if slices.ContainsFunc(diff, func(e string) bool {
+				return slices.Contains(taskPropertiesNeedRestart, e)
+			}) {
+				continue
+			}
+			s.mu.Unlock()
+			if err := s.Stop(name); err != nil {
+				errs = append(errs, err)
+			} else {
+				log.Printf("Stopped cmd for restart: %s\n", name)
+			}
+
+			if cmd, err := s.Start(name); err != nil {
+				errs = append(errs, err)
+			} else {
+				log.Printf("Restarted cmd: %s %d\n", name, cmd.Process.Pid)
+			}
+			s.mu.Lock()
+		}
+	}
+
+	s.mu.Unlock()
+	if len(errs) > 0 {
+		return true, fmt.Errorf("reload errors: %w", errors.Join(errs...))
+	}
+
+	return true, nil
 }
 
 // =============================

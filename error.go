@@ -3,5 +3,6 @@ package taskmaster
 import "errors"
 
 var (
-	UnknowTask = errors.New("unknow task")
+	ErrTaskUnknow         = errors.New("task unknow")
+	ErrTaskAlreadyRunning = errors.New("task already running")
 )

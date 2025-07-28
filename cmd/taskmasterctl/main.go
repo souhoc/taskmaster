@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"net/rpc"
 	"os"
@@ -9,15 +8,6 @@ import (
 
 	"github.com/souhoc/taskmaster"
 )
-
-var (
-	cause = flag.String("cause", "", "")
-)
-
-func init() {
-	flag.Parse()
-
-}
 
 func main() {
 	client, err := rpc.Dial("unix", taskmaster.SocketName)
@@ -28,7 +18,7 @@ func main() {
 	defer client.Close()
 
 	var rep int
-	if err := client.Call("TaskMaster.GetPid", &struct{}{}, &rep); err != nil {
+	if err := client.Call("TaskMaster.Pid", &struct{}{}, &rep); err != nil {
 		fmt.Println("Error calling:", err)
 		os.Exit(1)
 	}
