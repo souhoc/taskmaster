@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -38,12 +39,17 @@ func (c *Config) Init(args []string) error {
 	}
 
 	for name, task := range c.Tasks {
+		if strings.Contains(name, "_") {
+			return fmt.Errorf("config: unauthorized character found in task name: %s", name)
+		}
 		if task.NumProcs > maxNumProcs {
 			return fmt.Errorf("config: too many process: task %s has %d", name, task.NumProcs)
 		}
 		if task.NumProcs == 0 {
 			task.NumProcs = 1
 		}
+
+		task.done = make(chan error, 1)
 	}
 
 	return nil
