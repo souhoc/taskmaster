@@ -3,6 +3,9 @@ package taskmaster
 import "errors"
 
 var (
-	ErrTaskUnknow         = errors.New("task unknow")
+	ErrTaskUnknown        = errors.New("task unknown")
 	ErrTaskAlreadyRunning = errors.New("task already running")
+	ErrTaskNotRunning     = errors.New("task is not running")
+
+	ServiceClosed = errors.New("service closed")
 )
