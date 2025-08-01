@@ -45,6 +45,8 @@ type Task struct {
 	Stdout       string            `yaml:"stdout"`
 	Stderr       string            `yaml:"stderr"`
 	Env          map[string]string `yaml:"env"`
+
+	done chan error
 }
 
 // Compare checks if two Task instances are identical in all fields.
@@ -155,6 +157,7 @@ func (t Task) shouldRestart(exitCode int) bool {
 		return false
 	}
 }
+
 func (t Task) isExpectedExitCode(exitCode int) bool {
 	expectedCodes := t.ExitCodes
 	if len(expectedCodes) == 0 {
