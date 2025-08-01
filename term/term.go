@@ -202,6 +202,7 @@ func (t *Term) executeCmd(cmdLine string) error {
 }
 
 func (t *Term) Run() {
+	log.Println("term: running...")
 	fmt.Println("Welcome to taskmaster! Type 'exit' to quit.")
 
 	fd := os.Stdin.Fd()
@@ -236,6 +237,7 @@ func (t *Term) Run() {
 			t.input = ""
 		}
 	}
+	log.Println("term: exit")
 }
 
 // Termios represents the terminal settings.
