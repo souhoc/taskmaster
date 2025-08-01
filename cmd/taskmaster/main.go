@@ -33,6 +33,9 @@ func init() {
 		os.Exit(1)
 	}
 	log.SetOutput(logFile)
+	if os.Getenv("DEBUG") == "true" {
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
+	}
 }
 
 func main() {
