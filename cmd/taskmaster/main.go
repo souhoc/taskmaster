@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -61,9 +60,11 @@ func main() {
 
 	go func() {
 		t.Run()
-		service.Cancel(io.EOF)
-		service.Close()
+		if err := service.Close(); err != nil {
+			log.Printf("Failed to close the service: %s\n", err)
+		}
 	}()
+
 	// go readline(service.Cancel)
 	go handleSignals(sigChan, service)
 
@@ -71,7 +72,8 @@ func main() {
 	err := context.Cause(service.Ctx)
 	if err != nil {
 		switch err {
-		case io.EOF:
+		case taskmaster.ServiceClosed:
+			// Nothing to do
 		case TerminatedBySignal:
 			fmt.Println()
 		default:
