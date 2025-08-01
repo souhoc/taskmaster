@@ -530,7 +530,7 @@ func (s *Service) ReloadConfig() (changed bool, err error) {
 // =============================
 type OptFn func(*Service)
 
-func WithOutFile(f *os.File) OptFn {
+func WithOutputFile(f *os.File) OptFn {
 	return func(s *Service) {
 		s.out = f
 	}

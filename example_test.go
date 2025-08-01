@@ -14,6 +14,6 @@ func Example() {
 		os.Exit(1)
 	}
 
-	service := taskmaster.New(&cfg, taskmaster.WithOutFile(os.Stdout))
+	service := taskmaster.New(&cfg, taskmaster.WithOutputFile(os.Stdout))
 	defer service.Close()
 }

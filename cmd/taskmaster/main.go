@@ -46,7 +46,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := taskmaster.New(&cfg, taskmaster.WithOutFile(logFile))
+	service := taskmaster.New(&cfg, taskmaster.WithOutputFile(logFile))
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
