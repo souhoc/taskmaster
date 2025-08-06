@@ -353,80 +353,113 @@ func (s *Service) Close() error {
 func (s *Service) ReloadConfig() (changed bool, err error) {
 	s.mu.Lock()
 
-	old, err := s.cfg.Reload()
-	if old == nil {
-		return false, err
+	var newCfg Config
+	if err := newCfg.Load(); err != nil {
+		return false, fmt.Errorf("service: failed to load config: %w", err)
+	}
+	if newCfg.Compare(*s.cfg) {
+		s.mu.Unlock()
+		return false, nil
 	}
 
 	var errs []error
-	for name := range s.cmds {
-		newTask, newExists := s.cfg.Tasks[name]
-		oldTask, oldExists := old.Tasks[name]
-		_, _ = newTask, oldTask
+	// Stop all tasks not in the new config
+	for _, taskName := range diffTasks(s.cfg.Tasks, newCfg.Tasks) {
+		s.mu.Unlock()
 
-		// Stop cmds that doesnt exists anymore
-		if !newExists {
-			s.mu.Unlock()
-			if err := s.Stop(name); err != nil {
-				errs = append(errs, err)
-			} else {
-				log.Printf("service: cmd stopped: %s\n", name)
-			}
-			s.mu.Lock()
+		if err := s.Stop(taskName); err != nil {
+			errs = append(
+				errs,
+				fmt.Errorf("error while stopping task %s: %w", taskName, err),
+			)
 		}
 
-		// Start new cmds
-		if newExists && !oldExists {
-			s.mu.Unlock()
-			if cmds, err := s.Start(name); err != nil {
-				errs = append(errs, err)
-			} else {
-				for i, cmd := range cmds {
-					var cmdName string
-					if len(cmds) > 1 {
-						cmdName = fmt.Sprintf("%s-%02d", name, i)
-					} else {
-						cmdName = name
-					}
-					log.Printf("service: ew cmd running: %s %d\n", cmdName, cmd.Process.Pid)
-				}
-			}
-			s.mu.Lock()
-		}
-
-		// Update already existing cmds
-		// if newExists && oldExists {
-		// 	diff := newTask.Diff(*oldTask)
-		// 	if len(diff) == 0 {
-		// 		continue
-		// 	}
-		// 	if slices.ContainsFunc(diff, func(e string) bool {
-		// 		return slices.Contains(taskPropertiesNeedRestart, e)
-		// 	}) {
-		// 		continue
-		// 	}
-		// 	s.mu.Unlock()
-		// 	if err := s.Stop(name); err != nil {
-		// 		errs = append(errs, err)
-		// 	} else {
-		// 		log.Printf("Stopped cmd for restart: %s\n", name)
-		// 	}
-
-		// 	if cmd, err := s.Start(name); err != nil {
-		// 		errs = append(errs, err)
-		// 	} else {
-		// 		log.Printf("Restarted cmd: %s %d\n", name, cmd.Process.Pid)
-		// 	}
-		// 	s.mu.Lock()
-		// }
+		s.mu.Lock()
+	}
+	if len(errs) > 0 {
+		return false, fmt.Errorf("reload errors: %w", errors.Join(errs...))
 	}
 
-	s.mu.Unlock()
+	oldCfg := *s.cfg
+	*s.cfg = newCfg
+
+	// Start all new tasks
+	for _, taskName := range diffTasks(newCfg.Tasks, oldCfg.Tasks) {
+		s.mu.Unlock()
+
+		if err := s.Start(taskName); err != nil {
+			errs = append(
+				errs,
+				fmt.Errorf("error while starting task %s: %w", taskName, err),
+			)
+		}
+
+		s.mu.Lock()
+	}
+	if len(errs) > 0 {
+		return true, fmt.Errorf("reload errors: %w", errors.Join(errs...))
+	}
+
+	// Update tasks that where in the old and still in the new
+	for _, taskName := range commonTasks(oldCfg.Tasks, newCfg.Tasks) {
+		s.mu.Unlock()
+
+		oldTask := oldCfg.Tasks[taskName]
+		newTask := newCfg.Tasks[taskName]
+
+		if oldTask.DiffNeedRestart(*newTask) {
+			if err := s.Stop(taskName); err != nil {
+				errs = append(
+					errs,
+					fmt.Errorf("error while stopping task %s: %w", taskName, err),
+				)
+			}
+			time.After(time.Millisecond * 500)
+			if err := s.Start(taskName); err != nil {
+				errs = append(
+					errs,
+					fmt.Errorf("error while starting task %s: %w", taskName, err),
+				)
+			}
+		} else {
+			// NOTE: I have to get back the done chan of the OG task
+			// as it is passed in handleTaskCompletion
+			newTask.done = oldTask.done
+		}
+
+		s.mu.Lock()
+	}
 	if len(errs) > 0 {
 		return true, fmt.Errorf("reload errors: %w", errors.Join(errs...))
 	}
 
 	return true, nil
+}
+
+// diffTasks lists tasks that are in a but not in b.
+func diffTasks(a, b map[string]*Task) []string {
+	var tasks []string
+	for name := range a {
+		_, exists := b[name]
+		if !exists {
+			tasks = append(tasks, name)
+		}
+	}
+
+	return tasks
+}
+
+// commonTasks lists tasks that are in a and b.
+func commonTasks(a, b map[string]*Task) []string {
+	var tasks []string
+	for name := range a {
+		_, exists := b[name]
+		if exists {
+			tasks = append(tasks, name)
+		}
+	}
+
+	return tasks
 }
 
 // =============================
