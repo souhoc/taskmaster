@@ -1,6 +1,7 @@
 package taskmaster
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -24,20 +25,25 @@ func (c *Config) Init(args []string) error {
 		return err
 	}
 
+	return c.Load()
+}
+
+func (c *Config) Load() error {
 	if configPath == "" {
-		return fmt.Errorf("config file missing")
+		return errors.New("config: missing file")
 	}
 
 	f, err := os.Open(configPath)
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return fmt.Errorf("config: failed to open file: %w", err)
 	}
 	defer f.Close()
 
 	if err := yaml.NewDecoder(f).Decode(c); err != nil {
-		return fmt.Errorf("config: %w", err)
+		return fmt.Errorf("config: failed to decode file: %w", err)
 	}
 
+	// Verify each tasks and init task.done
 	for name, task := range c.Tasks {
 		if strings.Contains(name, "_") {
 			return fmt.Errorf("config: unauthorized character found in task name: %s", name)
@@ -83,6 +89,7 @@ func (c *Config) Reload() (old *Config, err error) {
 	return nil, nil
 }
 
+// Compare returns true if c is the same as d
 func (c Config) Compare(d Config) bool {
 	if len(c.Tasks) != len(d.Tasks) {
 		return false
