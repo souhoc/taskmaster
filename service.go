@@ -46,16 +46,15 @@ func New(cfg *Config, opts ...OptFn) *Service {
 	return s
 }
 
-func (s *Service) Start(name string) ([]*exec.Cmd, error) {
+func (s *Service) Start(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	task, exists := s.cfg.Tasks[name]
 	if !exists {
-		return nil, ErrTaskUnknown
+		return ErrTaskUnknown
 	}
 
-	var cmds []*exec.Cmd
 	for i := range task.NumProcs {
 		var cmdName string
 		if task.NumProcs > 1 {
@@ -65,26 +64,25 @@ func (s *Service) Start(name string) ([]*exec.Cmd, error) {
 		}
 
 		if cmd, exists := s.cmds[cmdName]; exists && cmd.Process != nil {
-			return nil, fmt.Errorf("service: %w", ErrTaskAlreadyRunning)
+			return fmt.Errorf("service: %w", ErrTaskAlreadyRunning)
 
 		}
 
 		cmd, err := s.newCmd(cmdName, task)
 		if err != nil {
-			return nil, fmt.Errorf("service: couldn't create cmd %s: %w", cmdName, err)
+			return fmt.Errorf("service: couldn't create cmd %s: %w", cmdName, err)
 		}
 
 		if err := cmd.Start(); err != nil {
-			return nil, fmt.Errorf("service: couldn't start cmd %s: %w", cmdName, err)
+			return fmt.Errorf("service: couldn't start cmd %s: %w", cmdName, err)
 		}
 
 		s.cmds[cmdName] = cmd
 		go s.handleTaskCompletion(cmdName, task, cmd)
 		log.Printf("service: cmd started: %s %d\n", cmdName, cmd.Process.Pid)
-		cmds = append(cmds, cmd)
 	}
 
-	return cmds, nil
+	return nil
 }
 
 func (s *Service) newCmd(name string, task *Task) (*exec.Cmd, error) {
@@ -172,7 +170,7 @@ func (s *Service) handleTaskCompletion(name string, task *Task, cmd *exec.Cmd) {
 		log.Printf("service: restarting task: %s\n", name)
 
 		// Restart the task
-		if _, restartErr := s.Start(name); restartErr != nil && s.out != nil {
+		if restartErr := s.Start(name); restartErr != nil && s.out != nil {
 			log.Printf("service: failed to restart task %s: %v\n", name, restartErr)
 		}
 	}
@@ -204,7 +202,7 @@ func (s *Service) Stop(name string) error {
 	} else {
 		// For one process
 		if err := s.stopCmd(name, task); err != nil {
-			return fmt.Errorf("service: error stopping task: %w", errors.Join(err))
+			return fmt.Errorf("service: error stopping task: %w", err)
 		}
 		log.Printf("service: cmd stopped: %s\n", name)
 	}
@@ -264,7 +262,7 @@ func (s *Service) stopCmd(name string, task *Task) error {
 	}
 }
 
-// Get a cmd, with mutex security
+// Get return a cmd, with mutex security
 func (s *Service) Get(name string) (*exec.Cmd, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -277,6 +275,7 @@ func (s *Service) Get(name string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+// List return the name of all running cmds
 func (s *Service) List() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
