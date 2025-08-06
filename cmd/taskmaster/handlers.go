@@ -82,21 +82,15 @@ func newStartHandler(s *taskmaster.Service) term.CmdHandler {
 			return fmt.Errorf("%s: missing parameter", args[0])
 		}
 
-		cmds, err := s.Start(args[1])
-		if err != nil {
-			if errors.Is(err, taskmaster.ErrTaskUnknown) {
-				fmt.Printf("%s: %s\n", err, args[1])
+		for _, arg := range args[1:] {
+			err := s.Start(arg)
+			if err != nil {
+				if errors.Is(err, taskmaster.ErrTaskUnknown) {
+					fmt.Printf("%s: %s\n", err, arg)
+				}
+				return fmt.Errorf("%s: %w", args[0], err)
 			}
-			return fmt.Errorf("%s: %w", args[0], err)
-		}
-		for i, cmd := range cmds {
-			var cmdName string
-			if len(cmds) > 1 {
-				cmdName = fmt.Sprintf("%s-%02d", args[1], i)
-			} else {
-				cmdName = args[1]
-			}
-			fmt.Printf("%s RUNNING %d\n", cmdName, cmd.Process.Pid)
+			fmt.Printf("running task %s\n", arg)
 		}
 
 		return nil
