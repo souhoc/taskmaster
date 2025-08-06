@@ -85,59 +85,56 @@ func (t Task) Compare(u Task) bool {
 		reflect.DeepEqual(t.Env, u.Env)
 }
 
-// Diff compares two Task instances and returns a slice of strings
-// indicating the names of fields that differ between the two tasks.
-// This method is useful for identifying specific differences between task configurations.
-func (t Task) Diff(u Task) []string {
-	var differences []string
+// DiffNeedRestart compares two Task instances and returns true if the task need to be restarted.
+func (t Task) DiffNeedRestart(u Task) bool {
 
 	if t.Cmd != u.Cmd {
-		differences = append(differences, "Cmd")
+		return true
 	}
 	if !reflect.DeepEqual(t.Args, u.Args) {
-		differences = append(differences, "Args")
+		return true
 	}
 	if t.NumProcs != u.NumProcs {
-		differences = append(differences, "NumProcs")
+		return true
 	}
 	if t.Umask != u.Umask {
-		differences = append(differences, "Umask")
+		return true
 	}
 	if t.WorkingDir != u.WorkingDir {
-		differences = append(differences, "WorkingDir")
+		return true
 	}
 	if t.AutoStart != u.AutoStart {
-		differences = append(differences, "AutoStart")
+		return false
 	}
 	if t.AutoRestart != u.AutoRestart {
-		differences = append(differences, "AutoRestart")
+		return false
 	}
 	if !reflect.DeepEqual(t.ExitCodes, u.ExitCodes) {
-		differences = append(differences, "ExitCodes")
+		return false
 	}
 	if t.StartRetries != u.StartRetries {
-		differences = append(differences, "StartRetries")
+		return false
 	}
 	if t.StartTime != u.StartTime {
-		differences = append(differences, "StartTime")
+		return false
 	}
 	if t.StopSignal != u.StopSignal {
-		differences = append(differences, "StopSignal")
+		return false
 	}
 	if t.StopTime != u.StopTime {
-		differences = append(differences, "StopTime")
+		return false
 	}
 	if t.Stdout != u.Stdout {
-		differences = append(differences, "Stdout")
+		return true
 	}
 	if t.Stderr != u.Stderr {
-		differences = append(differences, "Stderr")
+		return true
 	}
 	if !reflect.DeepEqual(t.Env, u.Env) {
-		differences = append(differences, "Env")
+		return true
 	}
 
-	return differences
+	return false
 }
 
 func (t Task) String() string {
