@@ -15,36 +15,52 @@ const (
 	AutoRestartUnexpecter autoRestartValue = "unexpected"
 )
 
-var (
-	taskPropertiesNeedRestart = []string{
-		"Cmd",
-		"Args",
-		"Umask",
-		"WorkingDir",
-		"Stdout",
-		"Stderr",
-		"Env",
-	}
-)
-
 type autoRestartValue string
 
 type Task struct {
-	Cmd          string            `yaml:"cmd"`
-	Args         []string          `yaml:"args"`
-	NumProcs     int               `yaml:"numprocs"`
-	Umask        int               `yaml:"umask"`
-	WorkingDir   string            `yaml:"workingdir"`
-	AutoStart    bool              `yaml:"autostart"`
-	AutoRestart  autoRestartValue  `yaml:"autorestart"`
-	ExitCodes    []int             `yaml:"exitcodes"`
-	StartRetries int               `yaml:"startretries"`
-	StartTime    int               `yaml:"starttime"`
-	StopSignal   string            `yaml:"stopsignal"`
-	StopTime     int               `yaml:"stoptime"`
-	Stdout       string            `yaml:"stdout"`
-	Stderr       string            `yaml:"stderr"`
-	Env          map[string]string `yaml:"env"`
+
+	// The command to use to launch the program.
+	Cmd string `yaml:"cmd"`
+
+	Args []string `yaml:"args"`
+
+	// The number of processes to start and keep running.
+	NumProcs int `yaml:"numprocs"`
+
+	// An umask to set before launching the program
+	Umask int `yaml:"umask"`
+
+	// A working directory to set before launching the program
+	WorkingDir string `yaml:"workingdir"`
+
+	// Whether to start this program at launch or not.
+	AutoStart bool `yaml:"autostart"`
+
+	// Whether the program should be restarted
+	// always, never, or on unexpected exits only.
+	AutoRestart autoRestartValue `yaml:"autorestart"`
+
+	// Which return codes represent an "expected" exit status.
+	ExitCodes []int `yaml:"exitcodes"`
+
+	// How many times a restart should be attempted before aborting
+	StartRetries int `yaml:"startretries"`
+
+	// How long the program should be running after it’s started
+	// for it to be considered "successfully started"
+	StartTime int `yaml:"starttime"`
+
+	// Which signal should be used to stop (i.e. exit gracefully) the program
+	StopSignal string `yaml:"stopsignal"`
+
+	// How long to wait after a graceful stop before killing the program
+	StopTime int `yaml:"stoptime"`
+
+	Stdout string `yaml:"stdout"`
+	Stderr string `yaml:"stderr"`
+
+	// Environment variables to set before launching the program
+	Env map[string]string `yaml:"env"`
 
 	done chan error
 }
