@@ -1,10 +1,8 @@
 package taskmaster
 
 import (
-	"context"
 	"os/exec"
 	"testing"
-	"time"
 )
 
 func TestNewService(t *testing.T) {
@@ -33,6 +31,8 @@ func TestServiceHandleTaskCompletion(t *testing.T) {
 		Cmd:      "echo",
 		Args:     []string{"Hello, World!"},
 		NumProcs: 1,
+
+		done: make(chan error, 1),
 	}
 
 	cmd := exec.Command(task.Cmd, task.Args...)
@@ -40,15 +40,10 @@ func TestServiceHandleTaskCompletion(t *testing.T) {
 		t.Fatalf("Failed to start command: %v", err)
 	}
 
+	go s.handleTaskCompletion("test", task, cmd)
 	// Wait for the command to finish
-	go func() {
-		time.Sleep(1 * time.Second)
-		s.handleTaskCompletion("test", task, cmd)
-	}()
-
-	// Check if the command is removed from the cmds map
-	if _, ok := s.cmds["test"]; ok {
-		t.Error("Expected command to be removed from cmds map")
+	if err := <-task.done; err != nil {
+		t.Fatalf("Failed to complete the task without error: %v", err)
 	}
 }
 
