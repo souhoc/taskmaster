@@ -46,6 +46,18 @@ func New(cfg *Config, opts ...OptFn) *Service {
 	return s
 }
 
+func (s *Service) AutoStart() {
+	for taskName, task := range s.cfg.Tasks {
+		if !task.AutoStart {
+			continue
+		}
+
+		if err := s.Start(taskName); err != nil {
+			log.Printf("service: error while autostart: %s: %v", taskName, err)
+		}
+	}
+}
+
 func (s *Service) Start(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
