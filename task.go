@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
@@ -48,13 +49,13 @@ type Task struct {
 
 	// How long the program should be running after it’s started
 	// for it to be considered "successfully started"
-	StartTime int `yaml:"starttime"`
+	StartTime time.Duration `yaml:"starttime"`
 
 	// Which signal should be used to stop (i.e. exit gracefully) the program
 	StopSignal string `yaml:"stopsignal"`
 
 	// How long to wait after a graceful stop before killing the program
-	StopTime int `yaml:"stoptime"`
+	StopTime time.Duration `yaml:"stoptime"`
 
 	Stdout string `yaml:"stdout"`
 	Stderr string `yaml:"stderr"`

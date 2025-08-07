@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -53,6 +54,10 @@ func (c *Config) Load() error {
 		}
 		if task.NumProcs == 0 {
 			task.NumProcs = 1
+		}
+
+		if task.StopTime <= time.Duration(0) {
+			task.StopTime = defaultTimeout
 		}
 
 		task.done = make(chan error, 1)

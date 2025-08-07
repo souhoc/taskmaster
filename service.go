@@ -252,19 +252,13 @@ func (s *Service) stopCmd(name string, task *Task) error {
 		return fmt.Errorf("failed to send signal to task %s: %w", name, err)
 	}
 
-	// Wait for the process to exit or force kill after timeout
-	stopTimeout := time.Duration(task.StopTime) * time.Second
-	if stopTimeout <= 0 {
-		stopTimeout = defaultTimeout
-	}
-
 	select {
 	case err := <-task.done:
 		if err != nil {
 			return fmt.Errorf("task %s exited with error: %w", name, err)
 		}
 		return nil
-	case <-time.After(stopTimeout):
+	case <-time.After(task.StopTime):
 		// Timeout reached, force kill
 		if err := cmd.Process.Kill(); err != nil {
 			return fmt.Errorf("failed to kill task %s: %w", name, err)
