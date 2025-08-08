@@ -23,15 +23,16 @@ type Task struct {
 	// The command to use to launch the program.
 	Cmd string `yaml:"cmd"`
 
+	// Arguments to give to the command.
 	Args []string `yaml:"args"`
 
 	// The number of processes to start and keep running.
 	NumProcs int `yaml:"numprocs"`
 
-	// An umask to set before launching the program
+	// An umask to set before launching the program.
 	Umask int `yaml:"umask"`
 
-	// A working directory to set before launching the program
+	// A working directory to set before launching the program.
 	WorkingDir string `yaml:"workingdir"`
 
 	// Whether to start this program at launch or not.
@@ -39,31 +40,35 @@ type Task struct {
 
 	// Whether the program should be restarted
 	// always, never, or on unexpected exits only.
+	// Default: never.
 	AutoRestart autoRestartValue `yaml:"autorestart"`
 
 	// Which return codes represent an "expected" exit status.
+	// Default: []int{0}.
 	ExitCodes []int `yaml:"exitcodes"`
 
-	// How many times a restart should be attempted before aborting
+	// How many times a restart should be attempted before aborting.
+	// Default: 3.
 	StartRetries int `yaml:"startretries"`
 
 	// How long the program should be running after it’s started
-	// for it to be considered "successfully started"
+	// for it to be considered "successfully started".
 	StartTime time.Duration `yaml:"starttime"`
 
-	// Which signal should be used to stop (i.e. exit gracefully) the program
+	// Which signal should be used to stop (i.e. exit gracefully) the program.
 	StopSignal string `yaml:"stopsignal"`
 
-	// How long to wait after a graceful stop before killing the program
+	// How long to wait after a graceful stop before killing the program.
 	StopTime time.Duration `yaml:"stoptime"`
 
 	Stdout string `yaml:"stdout"`
 	Stderr string `yaml:"stderr"`
 
-	// Environment variables to set before launching the program
+	// Environment variables to set before launching the program.
 	Env map[string]string `yaml:"env"`
 
-	done chan error
+	done         chan error
+	retriesCount int
 }
 
 // Compare checks if two Task instances are identical in all fields.
@@ -160,13 +165,22 @@ func (t Task) String() string {
 }
 
 func (t Task) shouldRestart(exitCode int) bool {
-	switch t.AutoRestart {
+	if t.retriesCount >= t.StartRetries {
+		return false
+	}
+
+	switch strings.ToLower(string(t.AutoRestart)) {
 	case "never", "":
 		return false
 	case "always":
+		t.retriesCount++
 		return true
 	case "unexpected":
-		return !t.isExpectedExitCode(exitCode)
+		if !t.isExpectedExitCode(exitCode) {
+			t.retriesCount++
+			return true
+		}
+		return false
 	default:
 		return false
 	}

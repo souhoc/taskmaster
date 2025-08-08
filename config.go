@@ -60,6 +60,10 @@ func (c *Config) Load() error {
 			task.StopTime = defaultTimeout
 		}
 
+		if task.StartRetries == 0 {
+			task.StartRetries = defaultStartRetries
+		}
+
 		task.done = make(chan error, 1)
 	}
 

@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	SocketName     = "/tmp/taskmaster.sock"
-	defaultTimeout = 10 * time.Second
+	SocketName          = "/tmp/taskmaster.sock"
+	defaultTimeout      = 10 * time.Second
+	defaultStartRetries = 3
 
 	processNameFormat string = "%s_%02d"
 )
