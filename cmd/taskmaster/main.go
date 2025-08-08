@@ -11,6 +11,7 @@ import (
 
 	"github.com/souhoc/taskmaster"
 	"github.com/souhoc/taskmaster/term"
+	"github.com/souhoc/taskmaster/util"
 )
 
 var exitStatus int = 0
@@ -46,8 +47,11 @@ func main() {
 	}
 
 	service := taskmaster.New(&cfg, taskmaster.WithOutputFile(logFile))
-	fmt.Println("Auto starting...")
+
+	spinner := util.NewSinner(nil)
+	go spinner.Spin("Auto starting tasks...")
 	service.AutoStart()
+	spinner.Done()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
