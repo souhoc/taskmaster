@@ -93,6 +93,12 @@ func (s *Service) Start(name string) error {
 		s.cmds[cmdName] = cmd
 		go s.handleTaskCompletion(cmdName, task, cmd)
 		log.Printf("service: cmd started: %s %d\n", cmdName, cmd.Process.Pid)
+
+		// Check that the cmd has successfuly start
+		time.Sleep(task.StartTime)
+		if cmd.ProcessState != nil {
+			return fmt.Errorf("service: unsuccessful start: %s", cmdName)
+		}
 	}
 
 	return nil
@@ -420,7 +426,7 @@ func (s *Service) ReloadConfig() (changed bool, err error) {
 					fmt.Errorf("error while stopping task %s: %w", taskName, err),
 				)
 			}
-			time.After(time.Millisecond * 500)
+			<-time.After(time.Millisecond * 500)
 			if err := s.Start(taskName); err != nil {
 				errs = append(
 					errs,
