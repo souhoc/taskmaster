@@ -46,6 +46,7 @@ func main() {
 	}
 
 	service := taskmaster.New(&cfg, taskmaster.WithOutputFile(logFile))
+	fmt.Println("Auto starting...")
 	service.AutoStart()
 
 	sigChan := make(chan os.Signal, 1)
