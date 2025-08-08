@@ -53,11 +53,7 @@ func main() {
 	defer signal.Stop(sigChan)
 
 	t := term.New()
-	t.AddCmd("config", "List config's tasks or information about a specific task.", newInfoCfgHandler(&cfg))
-	t.AddCmd("reload", "Reload config file.", newReloadHandler(service))
-	t.AddCmd("start", "Start a command.", newStartHandler(service))
-	t.AddCmd("stop", "Stop a command.", newStopHandler(service))
-	t.AddCmd("status", "foo", newStatusHandler(service))
+	addCmds(t, cfg, service)
 
 	go func() {
 		t.Run()
@@ -83,6 +79,18 @@ func main() {
 
 		os.Exit(exitStatus)
 	}
+}
+
+func addCmds(t *term.Term, cfg taskmaster.Config, service *taskmaster.Service) {
+	t.AddCmd(
+		"config",
+		"List config's tasks or information about a specific task.",
+		newInfoCfgHandler(&cfg),
+	)
+	t.AddCmd("reload", "Reload config file.", newReloadHandler(service))
+	t.AddCmd("start", "Start a task.", newStartHandler(service))
+	t.AddCmd("stop", "Stop a task.", newStopHandler(service))
+	t.AddCmd("status", "list running processes", newStatusHandler(service))
 }
 
 func handleSignals(sigChan chan os.Signal, service *taskmaster.Service) {
