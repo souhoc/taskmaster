@@ -59,6 +59,12 @@ func (s *Service) AutoStart() {
 	}
 }
 
+// Start initiates a service by name.
+// Parameters:
+//   - name: The name of the service to start.
+//
+// Returns:
+//   - An error if the service cannot be started.
 func (s *Service) Start(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -195,6 +201,12 @@ func (s *Service) handleTaskCompletion(name string, task *Task, cmd *exec.Cmd) {
 	}
 }
 
+// Stop halts a running service by name.
+// Parameters:
+//   - name: The name of the service to stop.
+//
+// Returns:
+//   - An error if the service cannot be stopped.
 func (s *Service) Stop(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -275,7 +287,13 @@ func (s *Service) stopCmd(name string, task *Task) error {
 	}
 }
 
-// Get return a cmd, with mutex security
+// Get retrieves a command by name.
+// Parameters:
+//   - name: The name of the command to retrieve.
+//
+// Returns:
+//   - *exec.Cmd: A pointer to the retrieved command.
+//   - error: An error if the command cannot be retrieved.
 func (s *Service) Get(name string) (*exec.Cmd, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -288,7 +306,9 @@ func (s *Service) Get(name string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-// List return the name of all running cmds
+// List returns a list of available service names.
+// Returns:
+//   - []string: A slice of strings representing the service names.
 func (s *Service) List() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -303,7 +323,9 @@ func (s *Service) List() []string {
 	return keys
 }
 
-// Close wait all running cmds and close cleanfully
+// Close shuts down the service and cleans up resources.
+// Returns:
+//   - An error if the service cannot be closed properly.
 func (s *Service) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -362,6 +384,10 @@ func (s *Service) Close() error {
 	return nil
 }
 
+// ReloadConfig reloads the configuration settings for the service.
+// Returns:
+//   - changed: A boolean indicating whether the configuration was changed.
+//   - err: An error if the configuration cannot be reloaded.
 func (s *Service) ReloadConfig() (changed bool, err error) {
 	s.mu.Lock()
 
