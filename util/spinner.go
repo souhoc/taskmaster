@@ -25,7 +25,7 @@ func NewSinner(f *os.File) *Spinner {
 	}
 }
 
-func (s *Spinner) Done() {
+func (s *Spinner) Stop() {
 	s.done <- struct{}{}
 	fmt.Fprintln(s.f)
 }
