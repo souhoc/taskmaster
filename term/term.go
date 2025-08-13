@@ -201,7 +201,7 @@ func (t *Term) executeCmd(cmdLine string) error {
 	return t.cmds[idx].handler(args...)
 }
 
-func (t *Term) Run() {
+func (t *Term) Run() error {
 	log.Println("term: running...")
 	fmt.Println("Welcome to taskmaster! Type 'exit' to quit.")
 
@@ -209,7 +209,7 @@ func (t *Term) Run() {
 	oldState, err := MakeRaw(fd)
 	if err != nil {
 		fmt.Printf("Error setting raw mode: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	defer Restore(fd, oldState)
 
@@ -238,6 +238,7 @@ func (t *Term) Run() {
 		}
 	}
 	log.Println("term: exit")
+	return nil
 }
 
 // Termios represents the terminal settings.
