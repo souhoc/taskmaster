@@ -117,31 +117,3 @@ func newStopHandler(s *taskmaster.Service) term.CmdHandler {
 		return nil
 	}
 }
-
-/* ***** */
-/* Bonus */
-/* ***** */
-
-func newInfoCfgHandler(cfg *taskmaster.Config) term.CmdHandler {
-	return func(args ...string) error {
-		if len(args) <= 1 || args[1] == "all" {
-			for name := range cfg.Tasks {
-				fmt.Println("  -", name)
-			}
-
-			return nil
-		}
-
-		for _, arg := range args[1:] {
-			task, exists := cfg.Tasks[arg]
-			if !exists {
-				fmt.Printf("task '%s' not found\n", arg)
-			} else {
-				fmt.Println(task.String())
-			}
-			fmt.Println()
-		}
-
-		return nil
-	}
-}
