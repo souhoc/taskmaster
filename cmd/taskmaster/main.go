@@ -14,9 +14,7 @@ import (
 	"github.com/souhoc/taskmaster/util"
 )
 
-var (
-	logFile *os.File
-)
+var logFile *os.File
 
 func init() {
 	dir, err := os.UserCacheDir()
@@ -90,12 +88,8 @@ func handleSignals(sigChan chan os.Signal, service *taskmaster.Service, program 
 		select {
 		case s := <-sigChan:
 			switch s {
-			case syscall.SIGINT:
-				log.Printf("%s SIGINT", TerminatedBySignal.Error())
-				program.Stop()
-				return
-			case syscall.SIGTERM:
-				log.Printf("%s SIGTERM", TerminatedBySignal.Error())
+			case syscall.SIGINT, syscall.SIGTERM:
+				log.Printf("%s: %s\n", TerminatedBySignal, s)
 				program.Stop()
 				return
 			case syscall.SIGHUP:
