@@ -14,8 +14,9 @@ import (
 	"github.com/souhoc/taskmaster/util"
 )
 
-var exitStatus int = 0
-var logFile *os.File
+var (
+	logFile *os.File
+)
 
 func init() {
 	dir, err := os.UserCacheDir()
@@ -50,69 +51,53 @@ func main() {
 
 	spinner := util.NewSinner(nil)
 	go spinner.Spin("Auto starting tasks...")
-	service.AutoStart()
-	spinner.Done()
+	service.AutoStart()()
+	spinner.Stop()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigChan)
 
 	t := term.New()
-	addCmds(t, cfg, service)
+	addCmds(t, service)
 
-	go func() {
-		t.Run()
-		if err := service.Close(); err != nil {
-			log.Printf("Failed to close the service: %s\n", err)
-		}
-	}()
+	go handleSignals(sigChan, service, t)
 
-	// go readline(service.Cancel)
-	go handleSignals(sigChan, service)
+	t.Run()
+	if err := service.Close(); err != nil {
+		log.Printf("Failed to close the service: %s\n", err)
+	}
 
-	<-service.Ctx.Done()
-	err := context.Cause(service.Ctx)
-	if err != nil {
-		switch err {
-		case taskmaster.ServiceClosed:
-			// Nothing to do
-		case TerminatedBySignal:
-			fmt.Println()
-		default:
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		}
-
-		os.Exit(exitStatus)
+	switch err := context.Cause(service.Ctx); err {
+	case taskmaster.ServiceClosed:
+		// Nothing to do
+	default:
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
-func addCmds(t *term.Term, cfg taskmaster.Config, service *taskmaster.Service) {
-	t.AddCmd(
-		"config",
-		"List config's tasks or information about a specific task.",
-		newInfoCfgHandler(&cfg),
-	)
+func addCmds(t *term.Term, service *taskmaster.Service) {
 	t.AddCmd("reload", "Reload config file.", newReloadHandler(service))
 	t.AddCmd("start", "Start a task.", newStartHandler(service))
 	t.AddCmd("stop", "Stop a task.", newStopHandler(service))
 	t.AddCmd("status", "list running processes", newStatusHandler(service))
 }
 
-func handleSignals(sigChan chan os.Signal, service *taskmaster.Service) {
+func handleSignals(sigChan chan os.Signal, service *taskmaster.Service, program *term.Term) {
+	defer signal.Stop(sigChan)
 	for {
 		select {
 		case s := <-sigChan:
 			switch s {
 			case syscall.SIGINT:
-				signal.Stop(sigChan)
 				log.Printf("%s SIGINT", TerminatedBySignal.Error())
-				service.Cancel(TerminatedBySignal)
-				exitStatus = 130
+				program.Stop()
+				return
 			case syscall.SIGTERM:
-				signal.Stop(sigChan)
 				log.Printf("%s SIGTERM", TerminatedBySignal.Error())
-				service.Cancel(TerminatedBySignal)
-				exitStatus = 143
+				program.Stop()
+				return
 			case syscall.SIGHUP:
 				if err := newReloadHandler(service)(); err != nil {
 					log.Printf("Error: %v\n", err)
