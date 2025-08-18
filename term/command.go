@@ -57,6 +57,6 @@ func (t *Term) defaultHelpHandler(args ...string) error {
 }
 
 func (t *Term) defaultExitHandler(...string) error {
-	fmt.Println("Пока пока !")
+	fmt.Print("Пока пока !")
 	return Exit
 }

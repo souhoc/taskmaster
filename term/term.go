@@ -22,6 +22,8 @@ type Term struct {
 	cmds       []Cmd
 	input      string
 	cursorPos  int
+
+	done chan struct{}
 }
 
 func New() *Term {
@@ -29,12 +31,21 @@ func New() *Term {
 		history:    make([]string, 0),
 		historyIdx: -1,
 		cmds:       make([]Cmd, 0),
+		done:       make(chan struct{}),
 	}
 
 	t.AddCmd("exit", "End the program.", t.defaultExitHandler)
 	t.AddCmd("help", "List commands or get information about a specific one.", t.defaultHelpHandler)
 
 	return &t
+}
+
+func (t *Term) Done() <-chan struct{} {
+	return t.done
+}
+
+func (t *Term) Stop() {
+	close(t.done)
 }
 
 func (t *Term) clearLine() {
@@ -212,32 +223,39 @@ func (t *Term) Run() error {
 		return err
 	}
 	defer Restore(fd, oldState)
+	defer log.Println("term: exit")
 
-	for {
-		t.printPrompt()
+	go func() {
+		for {
+			t.printPrompt()
 
-		input, err := t.handleInput()
-		if err != nil {
-			if err == io.EOF {
-				fmt.Println("exit")
-				break
-			}
-			fmt.Printf("Error reading input: %v\n", err)
-			break
-		}
-
-		if input != "" {
-			t.addToHistory(input)
-			if err := t.executeCmd(input); err != nil {
-				if err == Exit {
-					break
+			input, err := t.handleInput()
+			if err != nil {
+				if err == io.EOF {
+					t.Stop()
+					return
 				}
-				log.Printf("Error: %v\n", err)
+				fmt.Printf("Error reading input: %v\n", err)
+				t.Stop()
+				return
 			}
-			t.input = ""
+
+			if input != "" {
+				t.addToHistory(input)
+				if err := t.executeCmd(input); err != nil {
+					if err == Exit {
+						t.Stop()
+						return
+					}
+					log.Printf("Error: %v\n", err)
+				}
+				t.input = ""
+			}
 		}
-	}
-	log.Println("term: exit")
+	}()
+
+	<-t.done
+	fmt.Println()
 	return nil
 }
 
