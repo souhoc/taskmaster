@@ -1,0 +1,56 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  GREETING: Hello, World!
+
+tasks:
+  default:
+    cmds:
+      - task: build-taskmaster
+
+  build-cmd:
+    internal: true
+    cmds:
+      - go build -o ./bin/{{.CMD}} ./cmd/{{.CMD}}
+
+  build-taskmaster:
+    cmds:
+      - task: build-cmd
+        vars:
+          CMD: taskmaster
+    sources:
+      - ./*.go
+      - ./cmd/taskmaster/*.go
+    generates:
+      - ./bin/taskmaster
+
+  build-bonus:
+    deps: [generate]
+    cmds:
+      - task: build-cmd
+        vars:
+          CMD: taskmasterctl
+      - task: build-cmd
+        vars:
+          CMD: taskmasterd
+    sources:
+      - ./*.go
+      - ./cmd/taskmasterctl/*.go
+      - ./cmd/taskmasterd/*.go
+    generates:
+      - ./bin/taskmasterctl
+      - ./bin/taskmasterd
+
+  clean:
+    cmds:
+      - rm -rf ./bin
+
+  generate:
+    cmds:
+      - go generate ./rpcservice.go
+    sources:
+      - ./rpcservice.go
+    generates:
+      - ./rpcservice_const.go
