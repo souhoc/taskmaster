@@ -23,6 +23,8 @@ tasks:
     sources:
       - ./*.go
       - ./cmd/taskmaster/*.go
+      - ./term/*.go
+      - ./util/*.go
     generates:
       - ./bin/taskmaster
 
@@ -37,6 +39,8 @@ tasks:
           CMD: taskmasterd
     sources:
       - ./*.go
+      - ./term/*.go
+      - ./util/*.go
       - ./cmd/taskmasterctl/*.go
       - ./cmd/taskmasterd/*.go
     generates:
