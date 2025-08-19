@@ -9,7 +9,8 @@ import (
 )
 
 type Webhook struct {
-	Url string
+	Url      string
+	Username string
 }
 
 func (w Webhook) Send(content string) error {
@@ -18,7 +19,7 @@ func (w Webhook) Send(content string) error {
 	}
 
 	var body bytes.Buffer
-	if err := json.NewEncoder(&body).Encode(WebhookBody{Content: content}); err != nil {
+	if err := json.NewEncoder(&body).Encode(WebhookBody{Content: content, Username: w.Username}); err != nil {
 		return fmt.Errorf("failed to encode webhook body: %v\n", err)
 	}
 
@@ -34,6 +35,6 @@ func (w Webhook) Send(content string) error {
 }
 
 type WebhookBody struct {
-	// Username string `json:"username"`
-	Content string `json:"content"`
+	Username string `json:"username"`
+	Content  string `json:"content"`
 }
