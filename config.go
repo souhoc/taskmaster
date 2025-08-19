@@ -5,22 +5,38 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/user"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/souhoc/taskmaster/util"
 	"gopkg.in/yaml.v3"
 )
 
 var configPath string
 
+var paths []string = []string{"config.yaml"}
+
 type Config struct {
-	Tasks map[string]*Task `yaml:"tasks"`
+	Webhook    string           `yaml:"webhook"`
+	DropToUser string           `yaml:"dropToUser"`
+	Tasks      map[string]*Task `yaml:"tasks"`
 }
 
 func (c *Config) Init(args []string) error {
 	flags := flag.NewFlagSet(args[0], flag.ExitOnError)
 
-	flags.StringVar(&configPath, "config", "config.yaml", "Config yaml file path")
+	dir, err := os.UserConfigDir()
+	if err == nil {
+		dir = filepath.Join(dir, "taskmaster")
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		fmt.Printf("can't create user cache dir: %v", err)
+	}
+	paths = append(paths, filepath.Join(dir, "config.yaml"))
+
+	flags.StringVar(&configPath, "config", "", "Config yaml file path. (On Unix systems, it returns $XDG_CONFIG_HOME as specified by https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html if non-empty, else $HOME/.config. On Darwin, it returns $HOME/Library/Application Support. On Windows, it returns %AppData%. On Plan 9, it returns $home/lib).")
 
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
@@ -30,8 +46,22 @@ func (c *Config) Init(args []string) error {
 }
 
 func (c *Config) Load() error {
+	if configPath != "" {
+		_, err := os.Stat(configPath)
+		if err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
+	} else {
+		for _, path := range paths {
+			_, err := os.Stat(path)
+			if err == nil {
+				configPath = path
+				break
+			}
+		}
+	}
 	if configPath == "" {
-		return errors.New("config: missing file")
+		return errors.New("config: missing config file")
 	}
 
 	f, err := os.Open(configPath)
@@ -42,6 +72,21 @@ func (c *Config) Load() error {
 
 	if err := yaml.NewDecoder(f).Decode(c); err != nil {
 		return fmt.Errorf("config: failed to decode file: %w", err)
+	}
+
+	// Verify the user
+	if c.DropToUser != "" {
+		if _, err := user.Lookup(c.DropToUser); err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
+	}
+
+	// Verify the Webhook
+	if c.Webhook != "" {
+		wh := util.Webhook{Url: c.Webhook}
+		if err := wh.Send("test valid webhook"); err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
 	}
 
 	// Verify each tasks and init task.done
