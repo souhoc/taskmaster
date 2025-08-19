@@ -12,6 +12,10 @@
     "webhook": {
       "type": "string",
       "description": "webhook url to recieve notifications"
+    },
+    "dropToUser": {
+      "type": "string",
+      "description": "username to de-escalate on launch"
     }
   },
   "required": [
