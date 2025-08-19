@@ -63,7 +63,7 @@ tasks:
 
   container-build:
     vars:
-      ARGS: container build --tag taskmaster --file Dockerfile .
+      ARGS: build --tag taskmaster --file Dockerfile .
     cmds:
       - cmd: container {{.ARGS}}
         platforms: [darwin]
