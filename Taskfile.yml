@@ -10,6 +10,11 @@ tasks:
     cmds:
       - task: build-taskmaster
 
+  build-all:
+    cmds:
+      - task: build-taskmaster
+      - task: build-bonus
+
   build-cmd:
     internal: true
     cmds:
