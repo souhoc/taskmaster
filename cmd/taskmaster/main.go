@@ -42,7 +42,16 @@ func main() {
 	var cfg taskmaster.Config
 	if err := cfg.Init(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		logFile.Close()
 		os.Exit(1)
+	}
+
+	if cfg.DropToUser != "" {
+		if err := util.DropToUser(cfg.DropToUser); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			logFile.Close()
+			os.Exit(1)
+		}
 	}
 
 	service := taskmaster.New(&cfg, taskmaster.WithOutputFile(logFile))
