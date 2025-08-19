@@ -2,9 +2,6 @@
 
 version: '3'
 
-vars:
-  OS: darwin
-
 tasks:
   default:
     cmds:
@@ -18,7 +15,7 @@ tasks:
   build-cmd:
     internal: true
     cmds:
-      - GOOS={{.OS}} go build -o ./bin/{{.OS}}/{{.CMD}} ./cmd/{{.CMD}}
+      - go build -o ./bin/{{.CMD}} ./cmd/{{.CMD}}
 
   build-taskmaster:
     cmds:
@@ -31,7 +28,7 @@ tasks:
       - ./term/*.go
       - ./util/*.go
     generates:
-      - ./bin/{{.OS}}/taskmaster
+      - ./bin/taskmaster
 
   build-bonus:
     deps: [generate]
@@ -49,8 +46,8 @@ tasks:
       - ./cmd/taskmasterctl/*.go
       - ./cmd/taskmasterd/*.go
     generates:
-      - ./bin/{{.OS}}/taskmasterctl
-      - ./bin/{{.OS}}/taskmasterd
+      - ./bin/taskmasterctl
+      - ./bin/taskmasterd
 
   clean:
     cmds:
@@ -73,7 +70,7 @@ tasks:
 
   container-run:
     cmds:
-      - cmd: container run --name my-taskmaster --rm taskmaster
+      - cmd: container run --name my-taskmaster --rm -it taskmaster
         platforms: [darwin]
-      - cmd: docker run --name my-taskmaster --rm -d taskmaster
+      - cmd: docker run --name my-taskmaster --rm -it taskmaster
         platforms: [linux] 

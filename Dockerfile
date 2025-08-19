@@ -1,11 +1,9 @@
-FROM ubuntu:questing
+FROM golang:1.24 
+# RUN go install github.com/go-task/task/v3/cmd/task@latest
 
 WORKDIR /usr/src/app
 
-COPY ./bin/linux/taskmaster /usr/local/bin/taskmaster
-COPY ./bin/linux/taskmasterd /usr/local/bin/taskmasterd
-COPY ./bin/linux/taskmasterctl /usr/local/bin/taskmasterclt
+COPY . .
+RUN go install ./cmd/taskmaster
 
-COPY config.yaml ~/.config/taskmaster/config.yaml
-
-CMD ["bash" "-"]
+CMD ["bash", "-"]
