@@ -3,7 +3,7 @@
 version: '3'
 
 vars:
-  GREETING: Hello, World!
+  OS: darwin
 
 tasks:
   default:
@@ -18,7 +18,7 @@ tasks:
   build-cmd:
     internal: true
     cmds:
-      - go build -o ./bin/{{.CMD}} ./cmd/{{.CMD}}
+      - GOOS={{.OS}} go build -o ./bin/{{.OS}}/{{.CMD}} ./cmd/{{.CMD}}
 
   build-taskmaster:
     cmds:
@@ -31,7 +31,7 @@ tasks:
       - ./term/*.go
       - ./util/*.go
     generates:
-      - ./bin/taskmaster
+      - ./bin/{{.OS}}/taskmaster
 
   build-bonus:
     deps: [generate]
@@ -49,8 +49,8 @@ tasks:
       - ./cmd/taskmasterctl/*.go
       - ./cmd/taskmasterd/*.go
     generates:
-      - ./bin/taskmasterctl
-      - ./bin/taskmasterd
+      - ./bin/{{.OS}}/taskmasterctl
+      - ./bin/{{.OS}}/taskmasterd
 
   clean:
     cmds:
@@ -63,3 +63,17 @@ tasks:
       - ./rpcservice.go
     generates:
       - ./rpcservice_const.go
+
+  container-build:
+    cmds:
+      - cmd: container build --tag taskmaster --file Dockerfile .
+        platforms: [darwin]
+      - cmd: docker build --tag taskmaster --file Dockerfile .
+        platforms: [linux] 
+
+  container-run:
+    cmds:
+      - cmd: container run --name my-taskmaster --rm taskmaster
+        platforms: [darwin]
+      - cmd: docker run --name my-taskmaster --rm -d taskmaster
+        platforms: [linux] 
