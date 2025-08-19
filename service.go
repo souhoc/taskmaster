@@ -11,6 +11,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/souhoc/taskmaster/util"
 )
 
 const (
@@ -28,15 +30,18 @@ type Service struct {
 	out    *os.File
 	mu     sync.Mutex
 	cmds   map[string]*exec.Cmd
+
+	webhook util.Webhook
 }
 
 func New(cfg *Config, opts ...OptFn) *Service {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	s := &Service{
-		Ctx:    ctx,
-		Cancel: cancel,
-		cfg:    cfg,
-		cmds:   make(map[string]*exec.Cmd),
+		Ctx:     ctx,
+		Cancel:  cancel,
+		cfg:     cfg,
+		cmds:    make(map[string]*exec.Cmd),
+		webhook: util.Webhook{Url: cfg.Webhook},
 	}
 
 	for _, fn := range opts {
@@ -44,22 +49,65 @@ func New(cfg *Config, opts ...OptFn) *Service {
 	}
 
 	log.Println("service: new instance")
+	hostname, err := os.Hostname()
+	if err != nil {
+		s.webhook.Username = "Taskmaster"
+	} else {
+		s.webhook.Username = hostname
+	}
+	s.webhook.Send("service: new instance")
+
 	return s
 }
 
-func (s *Service) AutoStart() {
-	for taskName, task := range s.cfg.Tasks {
-		if !task.AutoStart {
-			continue
-		}
+// GetTask retrives a task by name.
+//
+// Parameters:
+//   - Name: the task's name.
+//
+// Returns:
+//   - *Task: A pointer to the task.
+//   - error: An error if the task in unknown.
+func (s *Service) GetTask(name string) (*Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-		if err := s.Start(taskName); err != nil {
-			log.Printf("service: error while autostart: %s: %v", taskName, err)
-		}
+	task, exists := s.cfg.Tasks[name]
+	if !exists {
+		return nil, ErrTaskUnknown
 	}
+
+	return task, nil
+}
+
+// AutoStart starts tasks that is set to auto start.
+//
+// Returns:
+//   - wait: A function to wait the completion of AutoStart
+func (s *Service) AutoStart() (wait func()) {
+	c := make(chan struct{})
+	wait = func() {
+		<-c
+	}
+
+	go func() {
+		defer close(c)
+		for taskName, task := range s.cfg.Tasks {
+			if !task.AutoStart {
+				continue
+			}
+
+			if err := s.Start(taskName); err != nil {
+				log.Printf("service: error while autostart: %s: %v", taskName, err)
+			}
+		}
+	}()
+
+	return
 }
 
 // Start initiates a service by name.
+//
 // Parameters:
 //   - name: The name of the service to start.
 //
@@ -98,13 +146,16 @@ func (s *Service) Start(name string) error {
 
 		s.cmds[cmdName] = cmd
 		go s.handleTaskCompletion(cmdName, task, cmd)
-		log.Printf("service: cmd started: %s %d\n", cmdName, cmd.Process.Pid)
 
 		// Check that the cmd has successfuly start
 		time.Sleep(task.StartTime)
 		if cmd.ProcessState != nil {
+			log.Printf("service: unsuccessful start: %s", cmdName)
 			return fmt.Errorf("service: unsuccessful start: %s", cmdName)
 		}
+		msg := fmt.Sprintf("service: cmd started successfully: %s %d\n", cmdName, cmd.Process.Pid)
+		log.Print(msg)
+		s.webhook.Send(msg)
 	}
 
 	return nil
@@ -179,14 +230,20 @@ func (s *Service) handleTaskCompletion(name string, task *Task, cmd *exec.Cmd) {
 
 	// Log task completion
 	if err == nil {
-		log.Printf("service: cmd %s completed successfully (exit code %d)\n", name, exitCode)
+		msg := fmt.Sprintf("service: cmd %s completed successfully (exit code %d)\n", name, exitCode)
+		log.Print(msg)
+		s.webhook.Send(msg)
 		return
 	} else if exitCode == -1 {
-		log.Printf("service: cmd %s: %s\n", name, err)
+		msg := fmt.Sprintf("service: cmd %s exited: %s\n", name, err)
+		log.Print(msg)
+		s.webhook.Send(msg)
 		return
 	}
 
-	log.Printf("service: task %s exited with code %d: %v\n", name, exitCode, err)
+	msg := fmt.Sprintf("service: task %s exited with code %d: %v\n", name, exitCode, err)
+	log.Print(msg)
+	s.webhook.Send(msg)
 
 	if task.shouldRestart(exitCode) {
 		// Add a small delay before restarting to prevent rapid restart loops
@@ -202,6 +259,7 @@ func (s *Service) handleTaskCompletion(name string, task *Task, cmd *exec.Cmd) {
 }
 
 // Stop halts a running service by name.
+//
 // Parameters:
 //   - name: The name of the service to stop.
 //
@@ -288,6 +346,7 @@ func (s *Service) stopCmd(name string, task *Task) error {
 }
 
 // Get retrieves a command by name.
+//
 // Parameters:
 //   - name: The name of the command to retrieve.
 //
@@ -314,10 +373,8 @@ func (s *Service) List() []string {
 	defer s.mu.Unlock()
 
 	keys := make([]string, 0, len(s.cmds))
-	for k, cmd := range s.cmds {
-		if cmd.Process != nil {
-			keys = append(keys, k)
-		}
+	for k := range s.cmds {
+		keys = append(keys, k)
 	}
 
 	return keys
@@ -381,6 +438,7 @@ func (s *Service) Close() error {
 	}
 
 	log.Println("service: closed")
+	s.webhook.Send("service: closed")
 	return nil
 }
 
@@ -390,6 +448,7 @@ func (s *Service) Close() error {
 //   - err: An error if the configuration cannot be reloaded.
 func (s *Service) ReloadConfig() (changed bool, err error) {
 	s.mu.Lock()
+	s.webhook.Send("reloading config")
 
 	var newCfg Config
 	if err := newCfg.Load(); err != nil {

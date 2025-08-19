@@ -83,7 +83,7 @@ func (c *Config) Load() error {
 
 	// Verify the Webhook
 	if c.Webhook != "" {
-		wh := util.Webhook{Url: c.Webhook}
+		wh := util.Webhook{Url: c.Webhook, Username: "test"}
 		if err := wh.Send("test valid webhook"); err != nil {
 			return fmt.Errorf("config: %w", err)
 		}
