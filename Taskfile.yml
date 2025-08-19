@@ -62,15 +62,28 @@ tasks:
       - ./rpcservice_const.go
 
   container-build:
+    vars:
+      ARGS: container build --tag taskmaster --file Dockerfile .
     cmds:
-      - cmd: container build --tag taskmaster --file Dockerfile .
+      - cmd: container {{.ARGS}}
         platforms: [darwin]
-      - cmd: docker build --tag taskmaster --file Dockerfile .
+      - cmd: docker {{.ARGS}}
         platforms: [linux] 
 
   container-run:
+    vars:
+      ARGS: run --name taskmaster --rm -it taskmaster
     cmds:
-      - cmd: container run --name my-taskmaster --rm -it taskmaster
+      - cmd: container {{.ARGS}}
         platforms: [darwin]
-      - cmd: docker run --name my-taskmaster --rm -it taskmaster
+      - cmd: docker {{.ARGS}}
+        platforms: [linux] 
+
+  container-exec:
+    vars:
+      ARGS: exec -it taskmaster bash
+    cmds:
+      - cmd: container {{.ARGS}}
+        platforms: [darwin]
+      - cmd: docker {{.ARGS}}
         platforms: [linux] 
