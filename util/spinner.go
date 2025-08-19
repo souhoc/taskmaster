@@ -27,7 +27,7 @@ func NewSinner(f *os.File) *Spinner {
 
 func (s *Spinner) Stop() {
 	s.done <- struct{}{}
-	fmt.Fprintln(s.f)
+	fmt.Fprintln(s.f, "Done.")
 }
 
 func (s *Spinner) Spin(msg string) {
