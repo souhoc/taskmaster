@@ -63,25 +63,34 @@ tasks:
 
   container-build:
     vars:
-      ARGS: build --tag taskmaster --file Dockerfile .
+      ARGS: --tag taskmaster --file Dockerfile .
     cmds:
-      - cmd: container {{.ARGS}}
+      - cmd: container build --arch amd64 {{.ARGS}}
         platforms: [darwin]
-      - cmd: docker {{.ARGS}}
+      - cmd: docker build {{.ARGS}}
         platforms: [linux] 
 
   container-run:
     vars:
-      ARGS: run --name taskmaster --rm -it taskmaster
+      ARGS: --name taskmaster --rm -it taskmaster
     cmds:
-      - cmd: container {{.ARGS}}
+      - cmd: container run --arch amd64 {{.ARGS}}
         platforms: [darwin]
-      - cmd: docker {{.ARGS}}
+      - cmd: docker run {{.ARGS}}
         platforms: [linux] 
 
   container-exec:
     vars:
       ARGS: exec -it taskmaster bash
+    cmds:
+      - cmd: container {{.ARGS}}
+        platforms: [darwin]
+      - cmd: docker {{.ARGS}}
+        platforms: [linux] 
+
+  container-log:
+    vars:
+      ARGS: exec -it taskmaster tail -f /root/.cache/taskmaster/taskmaster.log
     cmds:
       - cmd: container {{.ARGS}}
         platforms: [darwin]
