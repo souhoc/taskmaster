@@ -11,13 +11,11 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/souhoc/taskmaster/util"
 )
 
 const (
 	SocketName          = "/tmp/taskmaster.sock"
-	defaultTimeout      = 10 * time.Second
+	defaultTimeout      = 3 * time.Second
 	defaultStartRetries = 3
 
 	processNameFormat string = "%s_%02d"
@@ -30,18 +28,15 @@ type Service struct {
 	out    *os.File
 	mu     sync.Mutex
 	cmds   map[string]*exec.Cmd
-
-	webhook util.Webhook
 }
 
 func New(cfg *Config, opts ...OptFn) *Service {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	s := &Service{
-		Ctx:     ctx,
-		Cancel:  cancel,
-		cfg:     cfg,
-		cmds:    make(map[string]*exec.Cmd),
-		webhook: util.Webhook{Url: cfg.Webhook},
+		Ctx:    ctx,
+		Cancel: cancel,
+		cfg:    cfg,
+		cmds:   make(map[string]*exec.Cmd),
 	}
 
 	for _, fn := range opts {
