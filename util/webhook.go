@@ -14,6 +14,9 @@ type Webhook struct {
 }
 
 func (w Webhook) Send(content string) error {
+	if w.Url == "" {
+		return nil
+	}
 	if len(content) > 2000 {
 		return errors.New("content is more than 2000 characters")
 	}
