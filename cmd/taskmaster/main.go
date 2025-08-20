@@ -31,6 +31,7 @@ func init() {
 		fmt.Printf("can't create user log file: %v", err)
 		os.Exit(1)
 	}
+
 	log.SetOutput(logFile)
 	if os.Getenv("DEBUG") == "true" {
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -45,6 +46,9 @@ func main() {
 		logFile.Close()
 		os.Exit(1)
 	}
+
+	logger := util.NewLogger(cfg.Webhook, logFile)
+	log.SetOutput(logger)
 
 	if cfg.DropToUser != "" {
 		if err := util.DropToUser(cfg.DropToUser); err != nil {
