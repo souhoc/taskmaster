@@ -55,11 +55,7 @@ tasks:
 
   generate:
     cmds:
-      - go generate ./rpcservice.go
-    sources:
-      - ./rpcservice.go
-    generates:
-      - ./rpcservice_const.go
+      - go generate ./...
 
   container-build:
     vars:
