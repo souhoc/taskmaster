@@ -102,7 +102,11 @@ func (c *Config) Load() error {
 		}
 
 		if task.StopTime <= time.Duration(0) {
-			task.StopTime = defaultTimeout
+			task.StopTime = defaultStopTime
+		}
+
+		if task.StartTime <= time.Duration(0) {
+			task.StartTime = defaultStartTime
 		}
 
 		if task.StartRetries == 0 {
