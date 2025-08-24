@@ -4,11 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 )
 
 var (
@@ -206,13 +207,18 @@ func (t *Term) executeCmd(cmdLine string) error {
 		return fmt.Errorf("unknow command: %s", cmd)
 	}
 
-	log.Printf("term: cmd: %s %v\n", cmd, args)
+	st := time.Now()
+	err := t.cmds[idx].handler(args...)
+	slog.Info("exec",
+		slog.String("cmd", cmd),
+		slog.Any("args", args),
+		slog.Duration("time", time.Since(st)),
+	)
 
-	return t.cmds[idx].handler(args...)
+	return err
 }
 
 func (t *Term) Run() error {
-	log.Println("term: running...")
 	fmt.Println("Welcome to taskmaster! Type 'exit' to quit.")
 
 	fd := os.Stdin.Fd()
@@ -222,7 +228,6 @@ func (t *Term) Run() error {
 		return err
 	}
 	defer Restore(fd, oldState)
-	defer log.Println("term: exit")
 
 	go func() {
 		for {
@@ -246,7 +251,6 @@ func (t *Term) Run() error {
 						t.Stop()
 						return
 					}
-					log.Printf("Error: %v\n", err)
 				}
 				t.input = ""
 			}
