@@ -112,39 +112,9 @@ func (c *Config) Load() error {
 		if task.StartRetries == 0 {
 			task.StartRetries = defaultStartRetries
 		}
-
-		task.done = make(chan error, 1)
 	}
 
 	return nil
-}
-
-// Reload should not be called outside of service unless you know what you are doing.
-// It would mess with the mutex.
-func (c *Config) Reload() (old *Config, err error) {
-	if configPath == "" {
-		return nil, fmt.Errorf("config: file missing")
-	}
-
-	f, err := os.Open(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("config: %w", err)
-	}
-	defer f.Close()
-
-	var newCfg Config
-	if err := yaml.NewDecoder(f).Decode(&newCfg); err != nil {
-		return nil, fmt.Errorf("config: %w", err)
-	}
-
-	if !c.Compare(newCfg) {
-		old = new(Config)
-		*old = *c
-		*c = newCfg
-		return old, nil
-	}
-
-	return nil, nil
 }
 
 // Compare returns true if c is the same as d
