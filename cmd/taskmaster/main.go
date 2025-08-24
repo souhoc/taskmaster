@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -35,6 +36,7 @@ func init() {
 	log.SetOutput(logFile)
 	if os.Getenv("DEBUG") == "true" {
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
+		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 }
 
@@ -70,9 +72,9 @@ func main() {
 	defer signal.Stop(sigChan)
 
 	t := term.New()
-	addCmds(t, service)
-
-	go handleSignals(sigChan, service, t)
+	handler := Handler{service: service}
+	handler.AddCmds(t)
+	go handleSignals(sigChan, &handler, t)
 
 	t.Run()
 	if err := service.Close(); err != nil {
@@ -88,14 +90,7 @@ func main() {
 	}
 }
 
-func addCmds(t *term.Term, service *taskmaster.Service) {
-	t.AddCmd("reload", "Reload config file.", newReloadHandler(service))
-	t.AddCmd("start", "Start a task.", newStartHandler(service))
-	t.AddCmd("stop", "Stop a task.", newStopHandler(service))
-	t.AddCmd("status", "list running processes", newStatusHandler(service))
-}
-
-func handleSignals(sigChan chan os.Signal, service *taskmaster.Service, program *term.Term) {
+func handleSignals(sigChan chan os.Signal, handler *Handler, program *term.Term) {
 	defer signal.Stop(sigChan)
 	for {
 		select {
@@ -106,7 +101,7 @@ func handleSignals(sigChan chan os.Signal, service *taskmaster.Service, program 
 				program.Stop()
 				return
 			case syscall.SIGHUP:
-				if err := newReloadHandler(service)(); err != nil {
+				if err := handler.Reload(); err != nil {
 					log.Printf("Error: %v\n", err)
 				}
 			}

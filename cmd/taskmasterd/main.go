@@ -113,7 +113,7 @@ func handleEvents(sigChan chan os.Signal, lis net.Listener, service *taskmaster.
 				return
 			case syscall.SIGHUP:
 				log.Printf("Got SIGHUP, reloading...")
-				if changed, err := service.ReloadConfig(); err != nil {
+				if changed, err := service.Reload(); err != nil {
 					log.Printf("Error: couldn't reload config: %s\n", err)
 				} else {
 					log.Printf("config reloaded? %t\n", changed)

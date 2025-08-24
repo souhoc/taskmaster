@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -15,19 +15,20 @@ import (
 
 const (
 	SocketName          = "/tmp/taskmaster.sock"
-	defaultTimeout      = 3 * time.Second
+	defaultStopTime     = 3 * time.Second
+	defaultStartTime    = 3 * time.Second
 	defaultStartRetries = 3
 
 	processNameFormat string = "%s_%02d"
 )
 
 type Service struct {
-	Ctx    context.Context
-	Cancel context.CancelCauseFunc
-	cfg    *Config
-	out    *os.File
-	mu     sync.Mutex
-	cmds   map[string]*exec.Cmd
+	Ctx       context.Context
+	Cancel    context.CancelCauseFunc
+	cfg       *Config
+	out       *os.File
+	mu        sync.Mutex
+	processes map[string]*Process
 }
 
 func New(cfg *Config, opts ...OptFn) *Service {
@@ -36,46 +37,239 @@ func New(cfg *Config, opts ...OptFn) *Service {
 		Ctx:    ctx,
 		Cancel: cancel,
 		cfg:    cfg,
-		cmds:   make(map[string]*exec.Cmd),
 	}
+	s.processes = s.makeProcesses(cfg.Tasks)
 
 	for _, fn := range opts {
 		fn(s)
 	}
 
 	log.Println("service: new instance")
-	hostname, err := os.Hostname()
-	if err != nil {
-		s.webhook.Username = "Taskmaster"
-	} else {
-		s.webhook.Username = hostname
-	}
-	s.webhook.Send("service: new instance")
-
 	return s
 }
 
-// GetTask retrives a task by name.
+func (s *Service) makeProcesses(tasks map[string]*Task) map[string]*Process {
+	processes := make(map[string]*Process)
+
+	for taskName, task := range tasks {
+		if task.NumProcs == 1 {
+			process, err := s.newProcess(taskName, task)
+			if err != nil {
+				slog.Error("failed to make process",
+					slog.String("process", taskName),
+					slog.Any("error", err),
+				)
+				continue
+			}
+
+			processes[taskName] = process
+			slog.Info("init",
+				slog.String("process", taskName),
+			)
+			continue
+		}
+		for i := range task.NumProcs {
+			processName := fmt.Sprintf(processNameFormat, taskName, i)
+			process, err := s.newProcess(processName, task)
+			if err != nil {
+				log.Printf("service: init process failed: %s: %v\n", processName, err)
+				continue
+			}
+
+			processes[processName] = process
+			slog.Info("init",
+				slog.String("process", processName),
+			)
+		}
+	}
+
+	return processes
+}
+
+// Start starts a process if it exists.
 //
 // Parameters:
-//   - Name: the task's name.
-//
-// Returns:
-//   - *Task: A pointer to the task.
-//   - error: An error if the task in unknown.
-func (s *Service) GetTask(name string) (*Task, error) {
+//   - name: the name of the process.
+func (s *Service) Start(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	task, exists := s.cfg.Tasks[name]
+	process, exists := s.processes[name]
 	if !exists {
-		return nil, ErrTaskUnknown
+		return ErrProcessUnknown
+	}
+	if process == nil {
+		return ErrProcessNil
+	}
+	if process.cmd.Process != nil {
+		return ErrProcessAlreadyStarted
 	}
 
-	return task, nil
+	for range process.task.StartRetries {
+		if err := process.Start(); err != nil {
+			return ErrProcessAlreadyStarted
+		}
+		slog.Info("spawned",
+			slog.String("process", name),
+			slog.Int("pid", process.cmd.Process.Pid),
+		)
+		tmpCmd := process.cmd
+		go s.handleProcessCompletion(name)
+
+		// Wait StartTime to see if the process successfully started.
+		time.Sleep(process.task.StartTime)
+		if tmpCmd.ProcessState == nil {
+			slog.Info("success",
+				slog.String("process", name),
+				slog.Int("pid", tmpCmd.Process.Pid),
+			)
+			process.status = ProcessStatusRunning
+			return nil
+		}
+	}
+
+	process.status = ProcessStatusIdle
+	return ErrProcessIsNotRunning
 }
 
-// AutoStart starts tasks that is set to auto start.
+// handleProcessCompletion handles the completion of a process. Id needed it
+// retry to start it, or restart it.
+func (s *Service) handleProcessCompletion(name string) {
+	process := s.processes[name]
+
+	err := process.cmd.Wait()
+	shouldRetryStart := process.ShouldRetryStart()
+	shouldRestart := process.ShouldRestart()
+	slog.Warn("exited",
+		slog.String("process", name),
+		slog.Int("exit_code", process.cmd.ProcessState.ExitCode()),
+		slog.Bool("should_retry_start", shouldRetryStart),
+		slog.Bool("should_restart", shouldRestart),
+		slog.Int("start_count", process.startCount),
+	)
+
+	if err == nil {
+		// Successful exit.
+		process.done <- nil
+		if err := s.resetProcess(name, ProcessStatusExited); err != nil {
+			slog.Error("failed",
+				slog.String("process", name),
+				slog.Any("resetProcess", err))
+		}
+		return
+	}
+
+	if process.cmd.ProcessState.ExitCode() == -1 {
+		// Got killed. dont go further.
+		process.done <- nil
+		if err := s.resetProcess(name, ProcessStatusStopped); err != nil {
+			slog.Error("failed",
+				slog.String("process", name),
+				slog.Any("resetProcess", err))
+		}
+		return
+	}
+
+	if shouldRetryStart {
+		process.cmd, err = s.newCmd(name, process.task)
+		process.status = ProcessStatusIdle
+		if err != nil {
+			slog.Error("failed",
+				slog.String("process", name),
+				slog.Any("newCmd", err))
+		}
+		return
+	}
+
+	if shouldRestart {
+		if err := s.resetProcess(name, ProcessStatusIdle); err != nil {
+			slog.Error("failed",
+				slog.String("process", name),
+				slog.Any("resetProcess", err))
+			return
+		}
+
+		if err := s.Start(name); err != nil {
+			slog.Error("retry start",
+				slog.String("process", name),
+				slog.Any("service.Start", err))
+		}
+		return
+	}
+
+	process.done <- err
+	if err := s.resetProcess(name, ProcessStatusExited); err != nil {
+		slog.Error("failed",
+			slog.String("process", name),
+			slog.Any("resetProcess", err))
+	}
+}
+
+func (s *Service) Stop(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	process, exits := s.processes[name]
+	if !exits {
+		return ErrProcessUnknown
+	}
+	if process == nil {
+		return ErrProcessNil
+	}
+	if process.cmd == nil || process.cmd.Process == nil {
+		return ErrProcessIsNotRunning
+	}
+
+	var sig syscall.Signal
+	switch process.task.StopSignal {
+	case "", "TERM", "SIGTERM":
+		sig = syscall.SIGTERM
+	case "INT", "SIGINT":
+		sig = syscall.SIGINT
+	case "KILL", "SIGKILL":
+		sig = syscall.SIGKILL
+	case "HUP", "SIGHUP":
+		sig = syscall.SIGHUP
+	case "USR1", "SIGUSR1":
+		sig = syscall.SIGUSR1
+	case "USR2", "SIGUSR2":
+		sig = syscall.SIGUSR2
+	default:
+		return fmt.Errorf("unsupported stop signal: %s", process.task.StopSignal)
+	}
+
+	if err := process.cmd.Process.Signal(sig); err != nil {
+		return fmt.Errorf("failed to send signal %s to task %s: %w", sig, name, err)
+	}
+
+	select {
+	case err := <-process.done:
+		if err != nil {
+			return fmt.Errorf("task %s exited with error: %w", name, err)
+		}
+		return nil
+	case <-time.After(process.task.StopTime):
+		// Timeout reached, force kill
+		if err := process.cmd.Process.Kill(); err != nil {
+			return fmt.Errorf("failed to kill task %s: %w", name, err)
+		}
+		return fmt.Errorf("task %s was forcibly killed after timeout", name)
+	}
+}
+
+func (s *Service) Status(name string) ProcessStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	process, exists := s.processes[name]
+	if !exists || process == nil {
+		return ProcessStatusUnknown
+	}
+
+	return process.status
+}
+
+// AutoStart starts processes that is set to auto start.
 //
 // Returns:
 //   - wait: A function to wait the completion of AutoStart
@@ -87,72 +281,39 @@ func (s *Service) AutoStart() (wait func()) {
 
 	go func() {
 		defer close(c)
-		for taskName, task := range s.cfg.Tasks {
-			if !task.AutoStart {
+		var keys []string
+		for name, process := range s.processes {
+			if process == nil {
 				continue
 			}
 
-			if err := s.Start(taskName); err != nil {
-				log.Printf("service: error while autostart: %s: %v", taskName, err)
+			if !process.task.AutoStart {
+				continue
 			}
+			keys = append(keys, name)
+		}
+		if err := s.Batch(s.Start, keys); err != nil {
+			slog.Error("auto start", slog.Any("Batch", err))
 		}
 	}()
 
 	return
 }
 
-// Start initiates a service by name.
-//
-// Parameters:
-//   - name: The name of the service to start.
-//
-// Returns:
-//   - An error if the service cannot be started.
-func (s *Service) Start(name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	task, exists := s.cfg.Tasks[name]
-	if !exists {
-		return ErrTaskUnknown
+// Close shuts down the service and cleans up resources.
+func (s *Service) Close() error {
+	defer s.Cancel(ServiceClosed)
+	var keys []string
+	for name, process := range s.processes {
+		if process.status == ProcessStatusRunning {
+			keys = append(keys, name)
+		}
+	}
+	if err := s.Batch(s.Stop, keys); err != nil {
+		return fmt.Errorf("close errors: %w", err)
 	}
 
-	for i := range task.NumProcs {
-		var cmdName string
-		if task.NumProcs > 1 {
-			cmdName = fmt.Sprintf(processNameFormat, name, i)
-		} else {
-			cmdName = name
-		}
-
-		if cmd, exists := s.cmds[cmdName]; exists && cmd.Process != nil {
-			return fmt.Errorf("service: %w", ErrTaskAlreadyRunning)
-
-		}
-
-		cmd, err := s.newCmd(cmdName, task)
-		if err != nil {
-			return fmt.Errorf("service: couldn't create cmd %s: %w", cmdName, err)
-		}
-
-		if err := cmd.Start(); err != nil {
-			return fmt.Errorf("service: couldn't start cmd %s: %w", cmdName, err)
-		}
-
-		s.cmds[cmdName] = cmd
-		go s.handleTaskCompletion(cmdName, task, cmd)
-
-		// Check that the cmd has successfuly start
-		time.Sleep(task.StartTime)
-		if cmd.ProcessState != nil {
-			log.Printf("service: unsuccessful start: %s", cmdName)
-			return fmt.Errorf("service: unsuccessful start: %s", cmdName)
-		}
-		msg := fmt.Sprintf("service: cmd started successfully: %s %d\n", cmdName, cmd.Process.Pid)
-		log.Print(msg)
-		s.webhook.Send(msg)
-	}
-
+	slog.Info("service closed")
 	return nil
 }
 
@@ -200,251 +361,110 @@ func (s *Service) newCmd(name string, task *Task) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-func (s *Service) handleTaskCompletion(name string, task *Task, cmd *exec.Cmd) {
-	err := cmd.Wait()
-
-	// Get exit code
-	exitCode := 0
+func (s *Service) newProcess(name string, task *Task) (*Process, error) {
+	cmd, err := s.newCmd(name, task)
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			exitCode = exitError.ExitCode()
-		} else {
-			exitCode = 1
-		}
+		return nil, fmt.Errorf("s.newCmd: %w", err)
 	}
-
-	if exitCode == -1 {
-		task.done <- nil
-	} else {
-		task.done <- err
-	}
-
-	s.mu.Lock()
-	delete(s.cmds, name)
-	s.mu.Unlock()
-
-	// Log task completion
-	if err == nil {
-		msg := fmt.Sprintf("service: cmd %s completed successfully (exit code %d)\n", name, exitCode)
-		log.Print(msg)
-		s.webhook.Send(msg)
-		return
-	} else if exitCode == -1 {
-		msg := fmt.Sprintf("service: cmd %s exited: %s\n", name, err)
-		log.Print(msg)
-		s.webhook.Send(msg)
-		return
-	}
-
-	msg := fmt.Sprintf("service: task %s exited with code %d: %v\n", name, exitCode, err)
-	log.Print(msg)
-	s.webhook.Send(msg)
-
-	if task.shouldRestart(exitCode) {
-		// Add a small delay before restarting to prevent rapid restart loops
-		time.Sleep(1 * time.Second)
-
-		log.Printf("service: restarting task: %s\n", name)
-
-		// Restart the task
-		if restartErr := s.Start(name); restartErr != nil && s.out != nil {
-			log.Printf("service: failed to restart task %s: %v\n", name, restartErr)
-		}
-	}
+	return &Process{
+		cmd:        cmd,
+		task:       task,
+		startCount: 0,
+		startAt:    time.Time{},
+		status:     ProcessStatusIdle,
+		done:       make(chan error, 1),
+	}, nil
 }
 
-// Stop halts a running service by name.
-//
-// Parameters:
-//   - name: The name of the service to stop.
-//
-// Returns:
-//   - An error if the service cannot be stopped.
-func (s *Service) Stop(name string) error {
+func (s *Service) resetProcess(name string, status ProcessStatus) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	task, exists := s.cfg.Tasks[name]
+	process, exists := s.processes[name]
 	if !exists {
-		return ErrTaskUnknown
+		return ErrProcessUnknown
 	}
 
-	if task.NumProcs > 1 {
-		// For multiple process
-		var errs []error
-		for i := range task.NumProcs {
-			cmdName := fmt.Sprintf(processNameFormat, name, i)
-			if err := s.stopCmd(cmdName, task); err != nil {
-				errs = append(errs, err)
-			} else {
-				log.Printf("service: cmd stopped: %s\n", cmdName)
-			}
-		}
-		if len(errs) != 0 {
-			return fmt.Errorf("service: errors stopping tasks: %w", errors.Join(errs...))
-		}
-	} else {
-		// For one process
-		if err := s.stopCmd(name, task); err != nil {
-			return fmt.Errorf("service: error stopping task: %w", err)
-		}
-		log.Printf("service: cmd stopped: %s\n", name)
+	s.processes[name], err = s.newProcess(name, process.task)
+	if err != nil {
+		return err
 	}
+	s.processes[name].status = status
 
-	return nil
+	return
 }
 
-func (s *Service) stopCmd(name string, task *Task) error {
-	cmd, exists := s.cmds[name]
-	if !exists || cmd.Process == nil {
-		return ErrTaskNotRunning
-	}
-
-	sig := syscall.SIGTERM
-	if task.StopSignal != "" {
-		switch task.StopSignal {
-		case "TERM", "SIGTERM":
-			sig = syscall.SIGTERM
-		case "INT", "SIGINT":
-			sig = syscall.SIGINT
-		case "KILL", "SIGKILL":
-			sig = syscall.SIGKILL
-		case "HUP", "SIGHUP":
-			sig = syscall.SIGHUP
-		case "USR1", "SIGUSR1":
-			sig = syscall.SIGUSR1
-		case "USR2", "SIGUSR2":
-			sig = syscall.SIGUSR2
-		default:
-			return fmt.Errorf("unsupported stop signal: %s", task.StopSignal)
-		}
-	}
-
-	if err := cmd.Process.Signal(sig); err != nil {
-		return fmt.Errorf("failed to send signal to task %s: %w", name, err)
-	}
-
-	select {
-	case err := <-task.done:
-		if err != nil {
-			return fmt.Errorf("task %s exited with error: %w", name, err)
-		}
-		return nil
-	case <-time.After(task.StopTime):
-		// Timeout reached, force kill
-		if err := cmd.Process.Kill(); err != nil {
-			return fmt.Errorf("failed to kill task %s: %w", name, err)
-		}
-		delete(s.cmds, name)
-		return fmt.Errorf("task %s was forcibly killed after timeout", name)
-	}
-}
-
-// Get retrieves a command by name.
-//
-// Parameters:
-//   - name: The name of the command to retrieve.
-//
-// Returns:
-//   - *exec.Cmd: A pointer to the retrieved command.
-//   - error: An error if the command cannot be retrieved.
-func (s *Service) Get(name string) (*exec.Cmd, error) {
+func (s *Service) GetPid(name string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	cmd, exists := s.cmds[name]
+	process, exists := s.processes[name]
 	if !exists {
-		return nil, ErrTaskUnknown
+		return 0, ErrProcessUnknown
+	}
+	if process == nil {
+		return 0, ErrProcessNil
+	}
+	if process.cmd == nil || process.cmd.Process == nil || process.cmd.ProcessState != nil {
+		return 0, ErrProcessIsNotRunning
 	}
 
-	return cmd, nil
+	return process.cmd.Process.Pid, nil
 }
 
-// List returns a list of available service names.
-// Returns:
-//   - []string: A slice of strings representing the service names.
 func (s *Service) List() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	keys := make([]string, 0, len(s.cmds))
-	for k := range s.cmds {
+	keys := make([]string, 0, len(s.processes))
+	for k := range s.processes {
 		keys = append(keys, k)
 	}
-
 	return keys
 }
 
-// Close shuts down the service and cleans up resources.
-// Returns:
-//   - An error if the service cannot be closed properly.
-func (s *Service) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	defer s.Cancel(ServiceClosed)
-
-	if len(s.cmds) == 0 {
-		return nil
-	}
-
-	// Channel to collect errors from shutdown operations
-	errChan := make(chan error, len(s.cmds))
+func (s *Service) Batch(fn func(name string) error, names []string) error {
+	errC := make(chan error, len(names))
 	var wg sync.WaitGroup
+	wg.Add(len(names))
 
-	for cmdName, cmd := range s.cmds {
-		if cmd.Process == nil {
-			continue
-		}
-
-		taskName := cmdName
-		if idx := strings.Index(cmdName, "_"); idx != -1 {
-			taskName = cmdName[:idx]
-		}
-		task, exists := s.cfg.Tasks[taskName]
-		if !exists {
-			log.Printf("service: cmd has no task: %s\n", cmdName)
-			continue
-		}
-
-		wg.Add(1)
+	for i, name := range names {
 		go func() {
 			defer wg.Done()
-			if err := s.stopCmd(cmdName, task); err != nil {
-				errChan <- err
-			} else {
-				log.Printf("service: cmd stopped: %s\n", cmdName)
+			err := fn(name)
+			if err != nil {
+				errC <- fmt.Errorf("%s: %w", name, err)
+				slog.Debug("Batch",
+					slog.String("name", name),
+					slog.Any("error", err),
+					slog.Int("len(names)", len(names)),
+					slog.Any("names", names),
+					slog.Int("i", i),
+				)
+				return
 			}
+			errC <- nil
 		}()
 	}
-
-	// Wait for all shutdown operations to complete
 	wg.Wait()
-	close(errChan)
+	close(errC)
 
-	// Collect and return any errs
 	var errs []error
-	for err := range errChan {
-		errs = append(errs, err)
+	for err := range errC {
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
-
 	if len(errs) > 0 {
-		return fmt.Errorf("shutdown errors: %w", errors.Join(errs...))
+		return errors.Join(errs...)
 	}
 
-	log.Println("service: closed")
-	s.webhook.Send("service: closed")
 	return nil
+
 }
 
-// ReloadConfig reloads the configuration settings for the service.
-// Returns:
-//   - changed: A boolean indicating whether the configuration was changed.
-//   - err: An error if the configuration cannot be reloaded.
-func (s *Service) ReloadConfig() (changed bool, err error) {
+func (s *Service) Reload() (changed bool, err error) {
 	s.mu.Lock()
-	s.webhook.Send("reloading config")
-
 	var newCfg Config
 	if err := newCfg.Load(); err != nil {
 		return false, fmt.Errorf("service: failed to load config: %w", err)
@@ -454,104 +474,106 @@ func (s *Service) ReloadConfig() (changed bool, err error) {
 		return false, nil
 	}
 
-	var errs []error
-	// Stop all tasks not in the new config
-	for _, taskName := range diffTasks(s.cfg.Tasks, newCfg.Tasks) {
-		s.mu.Unlock()
+	newProcesses := s.makeProcesses(newCfg.Tasks)
 
-		if err := s.Stop(taskName); err != nil {
-			errs = append(
-				errs,
-				fmt.Errorf("error while stopping task %s: %w", taskName, err),
-			)
+	// Stop all processes not in the new processes
+	var keys []string
+	for _, name := range diffProcesses(s.processes, newProcesses) {
+		if s.processes[name].status == ProcessStatusRunning {
+			keys = append(keys, name)
 		}
-
-		s.mu.Lock()
-	}
-	if len(errs) > 0 {
-		return false, fmt.Errorf("reload errors: %w", errors.Join(errs...))
 	}
 
-	oldCfg := *s.cfg
+	s.mu.Unlock()
+	slog.Debug("batch stop",
+		slog.Any("names", keys),
+	)
+	if err := s.Batch(s.Stop, keys); err != nil {
+		return false, fmt.Errorf("error while stopping old processes: %w", err)
+	}
+	s.mu.Lock()
+
+	// If a process is running but doesnt need to be restarted, just add
+	// it to the new processes. Else, restart it.
+	keys = keys[:0]
+	for _, name := range commonProcesses(newProcesses, s.processes) {
+		if s.processes[name].status != ProcessStatusRunning {
+			continue
+		}
+		if s.processes[name].task.DiffNeedRestart(*newProcesses[name].task) {
+			keys = append(keys, name)
+		} else {
+			newProcesses[name] = s.processes[name]
+		}
+	}
+	slog.Debug("batch stop for restart",
+		slog.Any("names", keys),
+	)
+	s.mu.Unlock()
+	if err := s.Batch(s.Stop, keys); err != nil {
+		return false, fmt.Errorf("error while stopping for restart processes: %w", err)
+	}
+	s.mu.Lock()
+
+	slog.Debug("processes switch",
+		slog.Any("old", s.processes),
+		slog.Any("new", newProcesses),
+	)
+	oldProcesses := s.processes
+	s.processes = newProcesses
 	*s.cfg = newCfg
 
-	// Start all new tasks
-	for _, taskName := range diffTasks(newCfg.Tasks, oldCfg.Tasks) {
-		s.mu.Unlock()
+	slog.Debug("batch start for restart",
+		slog.Any("names", keys),
+	)
+	s.mu.Unlock()
+	if err := s.Batch(s.Start, keys); err != nil {
+		return true, fmt.Errorf("error while restarting processes: %w", err)
+	}
+	s.mu.Lock()
 
-		if err := s.Start(taskName); err != nil {
-			errs = append(
-				errs,
-				fmt.Errorf("error while starting task %s: %w", taskName, err),
-			)
+	// Start all new processes
+	keys = keys[:0]
+	for _, name := range diffProcesses(newProcesses, oldProcesses) {
+		if newProcesses[name].task.AutoStart {
+			keys = append(keys, name)
 		}
-
-		s.mu.Lock()
 	}
-	if len(errs) > 0 {
-		return true, fmt.Errorf("reload errors: %w", errors.Join(errs...))
-	}
-
-	// Update tasks that where in the old and still in the new
-	for _, taskName := range commonTasks(oldCfg.Tasks, newCfg.Tasks) {
-		s.mu.Unlock()
-
-		oldTask := oldCfg.Tasks[taskName]
-		newTask := newCfg.Tasks[taskName]
-
-		if oldTask.DiffNeedRestart(*newTask) {
-			if err := s.Stop(taskName); err != nil {
-				errs = append(
-					errs,
-					fmt.Errorf("error while stopping task %s: %w", taskName, err),
-				)
-			}
-			<-time.After(time.Millisecond * 500)
-			if err := s.Start(taskName); err != nil {
-				errs = append(
-					errs,
-					fmt.Errorf("error while starting task %s: %w", taskName, err),
-				)
-			}
-		} else {
-			// NOTE: I have to get back the done chan of the OG task
-			// as it is passed in handleTaskCompletion
-			newTask.done = oldTask.done
-		}
-
-		s.mu.Lock()
-	}
-	if len(errs) > 0 {
-		return true, fmt.Errorf("reload errors: %w", errors.Join(errs...))
+	slog.Debug("batch start new processes",
+		slog.Any("names", keys),
+	)
+	s.mu.Unlock()
+	if err := s.Batch(s.Start, keys); err != nil {
+		return false, fmt.Errorf("error while starting new processes: %w", err)
 	}
 
 	return true, nil
 }
 
-// diffTasks lists tasks that are in a but not in b.
-func diffTasks(a, b map[string]*Task) []string {
-	var tasks []string
+// diffProcesses lists processes that are in a but not in b.
+func diffProcesses(a, b map[string]*Process) []string {
+	var keys []string
 	for name := range a {
 		_, exists := b[name]
 		if !exists {
-			tasks = append(tasks, name)
+			keys = append(keys, name)
 		}
 	}
 
-	return tasks
+	return keys
 }
 
-// commonTasks lists tasks that are in a and b.
-func commonTasks(a, b map[string]*Task) []string {
-	var tasks []string
+// commonProcesses lists processes that are in a and b.
+func commonProcesses(a, b map[string]*Process) []string {
+	var keys []string
 	for name := range a {
 		_, exists := b[name]
 		if exists {
-			tasks = append(tasks, name)
+			keys = append(keys, name)
 		}
 	}
 
-	return tasks
+	return keys
 }
 
 // =============================
