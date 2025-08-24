@@ -101,7 +101,7 @@ func (t Task) DiffNeedRestart(u Task) bool {
 		return true
 	}
 	if t.NumProcs != u.NumProcs {
-		return true
+		return false
 	}
 	if t.Umask != u.Umask {
 		return true
