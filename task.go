@@ -66,9 +66,6 @@ type Task struct {
 
 	// Environment variables to set before launching the program.
 	Env map[string]string `yaml:"env"`
-
-	done         chan error
-	retriesCount int
 }
 
 // Compare checks if two Task instances are identical in all fields.
@@ -165,7 +162,7 @@ func (t Task) String() string {
 }
 
 func (t Task) shouldRestart(exitCode int) bool {
-	if t.retriesCount >= t.StartRetries {
+	if exitCode == -1 {
 		return false
 	}
 
@@ -173,11 +170,9 @@ func (t Task) shouldRestart(exitCode int) bool {
 	case "never", "":
 		return false
 	case "always":
-		t.retriesCount++
 		return true
 	case "unexpected":
 		if !t.isExpectedExitCode(exitCode) {
-			t.retriesCount++
 			return true
 		}
 		return false
