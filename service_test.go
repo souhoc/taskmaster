@@ -1,12 +1,24 @@
 package taskmaster
 
 import (
-	"os/exec"
 	"testing"
+	"time"
 )
 
 func TestNewService(t *testing.T) {
-	cfg := &Config{}
+	cfg := &Config{
+		Tasks: map[string]*Task{
+			"supertail": {
+				Cmd:          "tail",
+				Args:         []string{"-f", "/tmp/tail"},
+				NumProcs:     1,
+				Umask:        0,
+				StartRetries: 3,
+				StartTime:    time.Second * 3,
+				StopTime:     time.Second * 3,
+			},
+		},
+	}
 	s := New(cfg)
 
 	if s.Ctx == nil {
@@ -18,57 +30,34 @@ func TestNewService(t *testing.T) {
 	if s.cfg != cfg {
 		t.Error("Expected config to be set")
 	}
-	if s.cmds == nil {
-		t.Error("Expected cmds map to be initialized")
+	if s.processes == nil || len(s.processes) != len(cfg.Tasks) {
+		t.Error("Expected processes to be init")
 	}
 }
 
-func TestServiceHandleTaskCompletion(t *testing.T) {
-	cfg := &Config{}
+func TestService_Start_v2(t *testing.T) {
+	cfg := &Config{
+		Tasks: map[string]*Task{
+			"supertail": {
+				Cmd:          "tail",
+				Args:         []string{"-f", "/tmp/tail"},
+				NumProcs:     1,
+				Umask:        0,
+				StartRetries: 3,
+				StartTime:    time.Second * 3,
+				StopTime:     time.Second * 3,
+			},
+		},
+	}
 	s := New(cfg)
 
-	task := &Task{
-		Cmd:      "echo",
-		Args:     []string{"Hello, World!"},
-		NumProcs: 1,
-
-		done: make(chan error, 1),
+	err := s.Start("supertail")
+	if err == nil {
+		t.Error("Expected Start to have error")
 	}
 
-	cmd := exec.Command(task.Cmd, task.Args...)
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("Failed to start command: %v", err)
-	}
-
-	go s.handleTaskCompletion("test", task, cmd)
-	// Wait for the command to finish
-	if err := <-task.done; err != nil {
-		t.Fatalf("Failed to complete the task without error: %v", err)
-	}
-}
-
-func TestDiffTasks(t *testing.T) {
-	task1 := &Task{
-		Cmd:      "echo",
-		Args:     []string{"Hello, World!"},
-		NumProcs: 1,
-	}
-	task2 := &Task{
-		Cmd:      "echo",
-		Args:     []string{"Hello, Universe!"},
-		NumProcs: 1,
-	}
-
-	tasksA := map[string]*Task{
-		"task1": task1,
-		"task2": task2,
-	}
-	tasksB := map[string]*Task{
-		"task1": task1,
-	}
-
-	diff := diffTasks(tasksA, tasksB)
-	if len(diff) != 1 || diff[0] != "task2" {
-		t.Errorf("Expected diff to contain 'task2', got %v", diff)
+	err = <-s.processes["supertail"].done
+	if err == nil {
+		t.Error("Expected process having error")
 	}
 }
