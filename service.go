@@ -547,6 +547,7 @@ func (s *Service) Reload() (changed bool, err error) {
 		return false, fmt.Errorf("error while starting new processes: %w", err)
 	}
 
+	slog.Info("reload succesful")
 	return true, nil
 }
 

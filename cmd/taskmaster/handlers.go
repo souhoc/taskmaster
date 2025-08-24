@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -9,28 +8,24 @@ import (
 	"github.com/souhoc/taskmaster/term"
 )
 
-const (
-	nameWidth int = 20
-)
-
 type Handler struct {
-	service *taskmaster.Service
+	service  *taskmaster.Service
+	terminal *term.Term
 }
 
-func (h *Handler) AddCmds(t *term.Term) {
-	t.AddCmd("reload", "Reload config file.", h.Reload)
-	t.AddCmd("start", "Start one ore more processes.", h.Start)
-	t.AddCmd("stop", "Stop one ore more processes.", h.Stop)
-	t.AddCmd("status", "Display status of one or more processes", h.Status)
+func (h *Handler) SetTerminal() {
+	h.terminal.AddCmd("reload", "Reload config file.", h.Reload)
+	h.terminal.AddCmd("start", "Start one ore more processes.", h.Start)
+	h.terminal.AddCmd("stop", "Stop one ore more processes.", h.Stop)
+	h.terminal.AddCmd("status", "Display status of one or more processes", h.Status)
 
+	h.terminal.SetCompletions(h.service.List()...)
 }
 
 func (h *Handler) Status(args ...string) error {
 	if len(args) == 1 {
 		args = append(args, h.service.List()...)
 	}
-
-	slog.Debug("handler.Status", slog.Any("args", args))
 
 	for _, arg := range args[1:] {
 		status := h.service.Status(arg)
@@ -69,10 +64,6 @@ func (h *Handler) Stop(args ...string) error {
 
 	for _, arg := range args[1:] {
 		if err := h.service.Stop(arg); err != nil {
-			if errors.Is(err, taskmaster.ErrProcessUnknown) {
-				fmt.Printf("%s: %s\n", err, arg)
-				continue
-			}
 			fmt.Printf("%s: %s\n", err, arg)
 			return fmt.Errorf("%s: %w", args[0], err)
 		}
@@ -92,7 +83,8 @@ func (h *Handler) Reload(_ ...string) error {
 		)
 		return err
 	}
-	slog.Info("reload succesful")
+
+	h.terminal.SetCompletions(h.service.List()...)
 
 	return nil
 }

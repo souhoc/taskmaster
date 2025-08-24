@@ -60,3 +60,14 @@ func (r *RPCService) ReloadConfig(_ struct{}, reply *bool) error {
 	*reply = changed
 	return err
 }
+
+func (r *RPCService) Status(name string, status *ProcessStatus) error {
+	*status = r.service.Status(name)
+	return nil
+}
+
+func (r *RPCService) GetPid(name string, pid *int) error {
+	var err error
+	*pid, err = r.service.GetPid(name)
+	return err
+}

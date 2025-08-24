@@ -72,8 +72,8 @@ func main() {
 	defer signal.Stop(sigChan)
 
 	t := term.New()
-	handler := Handler{service: service}
-	handler.AddCmds(t)
+	handler := Handler{service: service, terminal: t}
+	handler.SetTerminal()
 	go handleSignals(sigChan, &handler, t)
 
 	t.Run()

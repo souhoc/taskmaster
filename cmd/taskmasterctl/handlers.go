@@ -1,11 +1,9 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/rpc"
-	"strings"
 
 	"github.com/souhoc/taskmaster"
 	"github.com/souhoc/taskmaster/term"
@@ -15,127 +13,122 @@ const (
 	nameWidth int = 20
 )
 
-func newStatusHandler(client *rpc.Client) term.CmdHandler {
-	return func(args ...string) error {
-		if len(args) <= 1 || args[1] == "all" {
-			var names []string
-			if err := client.Call(taskmaster.RPCServiceList, struct{}{}, &names); err != nil {
-				if err == rpc.ErrShutdown {
-					fmt.Print("server is closed")
-					return term.Exit
-				}
-				return err
-			}
+type Handler struct {
+	client   *rpc.Client
+	terminal *term.Term
+}
 
-			for _, name := range names {
-				var pid int
-				if err := client.Call(taskmaster.RPCServiceStatus, name, &pid); err != nil {
-					if err == rpc.ErrShutdown {
-						fmt.Print("server is closed")
-						return term.Exit
-					}
-					continue
-				}
-				fill := strings.Repeat(" ", nameWidth-len(name))
-				status := "RUNNING"
-				if pid == 0 {
-					status = "STOPPED"
-				}
-				fmt.Printf("%s%s %s %d\n", name, fill, status, pid)
-			}
-			return nil
-		}
+func (h *Handler) SetTerminal() {
+	h.terminal.AddCmd("status", "Display status of one or more processes", h.Status)
+	h.terminal.AddCmd("start", "Start one ore more processes.", h.Start)
+	h.terminal.AddCmd("stop", "Stop one ore more processes.", h.Stop)
+	h.terminal.AddCmd("reload", "Reload config file.", h.Reload)
 
-		var errs []error
-		for _, arg := range args[1:] {
-			var pid int
-			if err := client.Call(taskmaster.RPCServiceStatus, arg, &pid); err != nil {
-				if err == rpc.ErrShutdown {
-					fmt.Print("server is closed")
-					return term.Exit
-				}
-				if err.Error() == taskmaster.ErrTaskUnknown.Error() {
-					fmt.Printf("unknown cmd: %s\n", arg)
-					log.Printf("%s: unknown cmd: %s\n", args[0], arg)
-				}
-				errs = append(errs, err)
-				continue
-			}
-			fill := strings.Repeat(" ", nameWidth-len(arg))
-			status := "RUNNING"
-			if pid == 0 {
-				status = "STOPPED"
-			}
-			fmt.Printf("%s%s %s %d\n", arg, fill, status, pid)
-		}
-
-		if len(errs) > 0 {
-			return fmt.Errorf("%s: couldn't get status: %w", args[0], errors.Join(errs...))
-		}
-		return nil
+	var processes []string
+	err := h.client.Call(taskmaster.RPCServiceList, struct{}{}, &processes)
+	if err == nil {
+		h.terminal.SetCompletions(processes...)
 	}
 }
 
-func newReloadHandler(client *rpc.Client) term.CmdHandler {
-	return func(args ...string) error {
-		var changed bool
-		if err := client.Call(taskmaster.RPCServiceReloadConfig, struct{}{}, &changed); err != nil {
+func (h *Handler) Status(args ...string) error {
+	if len(args) == 1 {
+		var processes []string
+		if err := h.client.Call(taskmaster.RPCServiceList, struct{}{}, &processes); err != nil {
 			if err == rpc.ErrShutdown {
-				fmt.Print("server is closed")
+				fmt.Print("service is closed")
 				return term.Exit
 			}
-			return fmt.Errorf("%s: couldn't reload config: %w", args[0], err)
+			return err
 		}
-		log.Printf("config reloaded? %t\n", changed)
-		return nil
+		args = append(args, processes...)
 	}
+
+	for _, arg := range args[1:] {
+		var status taskmaster.ProcessStatus
+		h.client.Call(taskmaster.RPCServiceStatus, arg, &status)
+
+		var pid int
+		err := h.client.Call(taskmaster.RPCServiceGetPid, arg, &pid)
+		if err == rpc.ErrShutdown {
+			fmt.Print("service is closed")
+			return term.Exit
+		}
+
+		if status == taskmaster.ProcessStatusRunning && err == nil {
+			fmt.Printf("%s %s %d\n", arg, status, pid)
+			continue
+		}
+		fmt.Printf("%s %s XXXX\n", arg, status)
+	}
+
+	return nil
 }
 
-func newStartHandler(client *rpc.Client) term.CmdHandler {
-	return func(args ...string) error {
-		if len(args) <= 1 {
-			fmt.Println("missing paramater")
-			return fmt.Errorf("%s: missing parameter", args[0])
-		}
-		for _, arg := range args[1:] {
-			var reply struct{}
-			err := client.Call(taskmaster.RPCServiceStart, arg, &reply)
-			if err != nil {
-				if err == rpc.ErrShutdown {
-					fmt.Print("server is closed")
-					return term.Exit
-				}
-				if err.Error() == taskmaster.ErrTaskUnknown.Error() {
-					fmt.Printf("%s: %s\n", err, arg)
-				}
-				return fmt.Errorf("%s: %w", args[0], err)
-			}
-			fmt.Printf("running task %s\n", arg)
-		}
-		return nil
+func (h *Handler) Start(args ...string) error {
+	if len(args) == 1 {
+		return fmt.Errorf("%s: missing parameter", args[0])
 	}
+
+	for _, arg := range args[1:] {
+		if err := h.client.Call(taskmaster.RPCServiceStart, arg, nil); err != nil {
+			if err == rpc.ErrShutdown {
+				fmt.Print("service is closed")
+				return term.Exit
+			}
+
+			fmt.Printf("%s: %s\n", err, arg)
+			return fmt.Errorf("%s: %w", args[0], err)
+		}
+
+		fmt.Printf("running task %s\n", arg)
+	}
+
+	return nil
 }
 
-func newStopHandler(client *rpc.Client) term.CmdHandler {
-	return func(args ...string) error {
-		if len(args) <= 1 {
-			return fmt.Errorf("%s: missing parameter", args[0])
-		}
-		for _, arg := range args[1:] {
-			var reply struct{}
-			if err := client.Call(taskmaster.RPCServiceStop, arg, &reply); err != nil {
-				if err == rpc.ErrShutdown {
-					fmt.Print("server is closed")
-					return term.Exit
-				}
-				if err.Error() == taskmaster.ErrTaskUnknown.Error() {
-					fmt.Printf("unknown task: %s\n", arg)
-				} else {
-					fmt.Printf("couldn't stop %s\n", arg)
-				}
-				return fmt.Errorf("%s: couldn't stop %s: %w", args[0], arg, err)
-			}
-		}
-		return nil
+func (h *Handler) Stop(args ...string) error {
+	if len(args) == 1 {
+		return fmt.Errorf("%s: missing parameter", args[0])
 	}
+
+	for _, arg := range args[1:] {
+		if err := h.client.Call(taskmaster.RPCServiceStop, arg, nil); err != nil {
+			if err == rpc.ErrShutdown {
+				fmt.Print("service is closed")
+				return term.Exit
+			}
+
+			fmt.Printf("%s: %s\n", err, arg)
+			return fmt.Errorf("%s: %w", args[0], err)
+		}
+
+		fmt.Printf("stopped process: %s\n", arg)
+	}
+
+	return nil
+}
+
+func (h *Handler) Reload(_ ...string) error {
+	var changed bool
+	err := h.client.Call(taskmaster.RPCServiceReloadConfig, struct{}{}, &changed)
+	if err != nil {
+		if err == rpc.ErrShutdown {
+			fmt.Print("service is closed")
+			return term.Exit
+		}
+		slog.Error("reload",
+			slog.Bool("new_config?", changed),
+			slog.Any("error", err),
+		)
+		return err
+	}
+
+	var processes []string
+	err = h.client.Call(taskmaster.RPCServiceList, struct{}{}, &processes)
+	if err == nil {
+		h.terminal.SetCompletions(processes...)
+	}
+
+	return nil
 }

@@ -59,18 +59,12 @@ func main() {
 	defer signal.Stop(sigChan)
 
 	t := term.New()
-	addCmds(t, client)
+	handler := Handler{client: client, terminal: t}
+	handler.SetTerminal()
 
 	go handleSignals(sigChan, t)
 
 	t.Run()
-}
-
-func addCmds(t *term.Term, client *rpc.Client) {
-	t.AddCmd("reload", "Reload config file.", newReloadHandler(client))
-	t.AddCmd("start", "Start a task.", newStartHandler(client))
-	t.AddCmd("stop", "Stop a task.", newStopHandler(client))
-	t.AddCmd("status", "list running processes", newStatusHandler(client))
 }
 
 func handleSignals(sigChan chan os.Signal, program *term.Term) {

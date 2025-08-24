@@ -4,8 +4,9 @@ package taskmaster
 // RPC method name constants
 const (
 	RPCServiceList         = "RPCService.List"
-	RPCServiceStatus       = "RPCService.Status"
 	RPCServiceStart        = "RPCService.Start"
 	RPCServiceStop         = "RPCService.Stop"
 	RPCServiceReloadConfig = "RPCService.ReloadConfig"
+	RPCServiceStatus       = "RPCService.Status"
+	RPCServiceGetPid       = "RPCService.GetPid"
 )
