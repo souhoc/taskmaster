@@ -25,25 +25,6 @@ func (r *RPCService) List(_ struct{}, names *[]string) error {
 	return nil
 }
 
-// Get retrieves a command by name and sets it's pid to the provided pointer.
-//
-// Parameters:
-//   - name: The name of the command to retrieve.
-//   - pid: A pointer to an int where the retrieved command pid will be stored.
-//
-// Returns:
-//   - An error if the retrieval fails.
-func (r *RPCService) Status(name string, pid *int) error {
-	cmd, err := r.service.Get(name)
-	if err != nil {
-		return err
-	}
-
-	*pid = cmd.Process.Pid
-
-	return nil
-}
-
 // Start starts a service by name.
 //
 // Parameters:
@@ -75,7 +56,7 @@ func (r *RPCService) Stop(name string, _ *struct{}) error {
 // Returns:
 //   - An error if the reload operation fails.
 func (r *RPCService) ReloadConfig(_ struct{}, reply *bool) error {
-	changed, err := r.service.ReloadConfig()
+	changed, err := r.service.Reload()
 	*reply = changed
 	return err
 }
