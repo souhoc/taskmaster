@@ -3,9 +3,10 @@ package taskmaster
 import "errors"
 
 var (
-	ErrTaskUnknown        = errors.New("task unknown")
-	ErrTaskAlreadyRunning = errors.New("task already running")
-	ErrTaskNotRunning     = errors.New("task is not running")
+	ErrProcessUnknown        = errors.New("process's unknown")
+	ErrProcessAlreadyStarted = errors.New("process's already started")
+	ErrProcessNil            = errors.New("process's nil")
+	ErrProcessIsNotRunning   = errors.New("process is not running")
 
 	ServiceClosed = errors.New("service closed")
 )
