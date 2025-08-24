@@ -19,6 +19,7 @@ func (t *Term) AddCmd(name, description string, handler CmdHandler) {
 		description: description,
 		handler:     handler,
 	})
+	t.completions = append(t.completions, name)
 }
 
 type Cmd struct {

@@ -17,11 +17,12 @@ var (
 )
 
 type Term struct {
-	history    []string
-	historyIdx int
-	cmds       []Cmd
-	input      string
-	cursorPos  int
+	history     []string
+	historyIdx  int
+	cmds        []Cmd
+	input       string
+	cursorPos   int
+	completions []string
 
 	done chan struct{}
 }
@@ -38,6 +39,10 @@ func New() *Term {
 	t.AddCmd("help", "List commands or get information about a specific one.", t.defaultHelpHandler)
 
 	return &t
+}
+
+func (t *Term) SetCompletions(completions ...string) {
+	t.completions = completions
 }
 
 func (t *Term) Done() <-chan struct{} {
@@ -154,7 +159,7 @@ func (t *Term) handleInput() (string, error) {
 }
 
 func (t *Term) handleCompletion() {
-	if t.input == "" {
+	if t.input == "" || len(t.completions) == 0 {
 		return
 	}
 
@@ -165,6 +170,11 @@ func (t *Term) handleCompletion() {
 	for _, cmd := range t.cmds {
 		if strings.HasPrefix(cmd.name, lastWord) {
 			matches = append(matches, cmd.name)
+		}
+	}
+	for _, completion := range t.completions {
+		if strings.HasPrefix(completion, lastWord) {
+			matches = append(matches, completion)
 		}
 	}
 
