@@ -2,16 +2,6 @@
 
 # webhook: ""
 tasks:
-  # web-observer:
-  #   cmd: "/Users/sou/Documents/42/taskmaster_test/web-observer/web-observer"
-  #   args: ["-config", "/Users/sou/Documents/42/taskmaster_test/web-observer/config.yaml"]
-  #   numprocs: 2
-  #   autostart: true
-  #   autorestart: "unexpected"
-  #   exitcodes:
-  #     - 0
-  #   starttime: "1s"
-  #   stopsignal: TERM
   supertail:
     cmd: "tail"
     args: ["-f","/tmp/grominet"]
