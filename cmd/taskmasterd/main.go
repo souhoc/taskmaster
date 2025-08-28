@@ -51,6 +51,13 @@ func main() {
 	logger := util.NewLogger(cfg.Webhook, os.Stdout)
 	slog.SetDefault(slog.New(logger))
 
+	if cfg.DropToUser != "" {
+		if err := util.DropToUser(cfg.DropToUser); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+
 	service := taskmaster.New(&cfg)
 	rpcService := taskmaster.NewRPCService(service)
 
