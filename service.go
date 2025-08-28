@@ -129,9 +129,6 @@ func (s *Service) Start(name string) error {
 			s.processes[name].status = ProcessStatusRunning
 			return nil
 		}
-		if !process.ShouldRestart() {
-			break
-		}
 	}
 
 	process.status = ProcessStatusFailed
