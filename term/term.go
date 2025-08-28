@@ -213,7 +213,7 @@ func (t *Term) executeCmd(cmdLine string) error {
 		return c.name == cmd
 	})
 	if idx == -1 {
-		fmt.Printf("Error: unknow command: %s\n", cmd)
+		fmt.Printf("unknow command: %s\n", cmd)
 		return fmt.Errorf("unknow command: %s", cmd)
 	}
 
