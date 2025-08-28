@@ -14,6 +14,7 @@ const (
 	ProcessStatusExited
 	ProcessStatusStopped
 	ProcessStatusIdle
+	ProcessStatusFailed
 )
 
 type Process struct {
@@ -28,7 +29,6 @@ type Process struct {
 func (p *Process) Start() error {
 	p.startAt = time.Now()
 	p.startCount++
-	p.status = ProcessStatusRunning
 	return p.cmd.Start()
 }
 

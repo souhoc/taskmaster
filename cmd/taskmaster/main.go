@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/souhoc/taskmaster"
@@ -15,21 +15,19 @@ import (
 	"github.com/souhoc/taskmaster/util"
 )
 
-var logFile *os.File
+var (
+	logFile    *os.File
+	configPath string
+)
 
 func init() {
-	dir, err := os.UserCacheDir()
-	if err == nil {
-		dir = filepath.Join(dir, "taskmaster")
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		fmt.Printf("can't create user cache dir: %v", err)
-	}
+	flag.StringVar(&configPath, "config", "", "Config yaml file path. (On Unix systems, it returns $XDG_CONFIG_HOME as specified by https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html if non-empty, else $HOME/.config. On Darwin, it returns $HOME/Library/Application Support. On Windows, it returns %AppData%. On Plan 9, it returns $home/lib).")
+	flag.Parse()
 
-	file := filepath.Join(dir, "taskmaster.log")
-	logFile, err = os.OpenFile(file, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	var err error
+	logFile, err = util.GetLogfile()
 	if err != nil {
-		fmt.Printf("can't create user log file: %v", err)
+		fmt.Fprintf(os.Stderr, "failed to get logfile: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -43,14 +41,14 @@ func init() {
 func main() {
 	defer logFile.Close()
 	var cfg taskmaster.Config
-	if err := cfg.Init(os.Args); err != nil {
+	if err := cfg.Init(configPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		logFile.Close()
 		os.Exit(1)
 	}
 
 	logger := util.NewLogger(cfg.Webhook, logFile)
-	log.SetOutput(logger)
+	slog.SetDefault(slog.New(logger))
 
 	if cfg.DropToUser != "" {
 		if err := util.DropToUser(cfg.DropToUser); err != nil {

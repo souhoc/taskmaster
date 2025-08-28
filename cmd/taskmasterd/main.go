@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"net/rpc"
 	"os"
+	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/souhoc/taskmaster"
@@ -17,38 +19,37 @@ import (
 )
 
 var (
-	logFile *os.File
+	deamon     bool
+	configPath string
 )
 
 func init() {
-	dir, err := os.UserCacheDir()
-	if err == nil {
-		dir = filepath.Join(dir, "taskmaster")
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		fmt.Printf("can't create user cache dir: %v", err)
-	}
+	flag.BoolVar(&deamon, "deamon", true, "Whether or not to run as a daemon.")
+	flag.StringVar(&configPath, "config", "", "Config yaml file path. (On Unix systems, it returns $XDG_CONFIG_HOME as specified by https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html if non-empty, else $HOME/.config. On Darwin, it returns $HOME/Library/Application Support. On Windows, it returns %AppData%. On Plan 9, it returns $home/lib).")
+	flag.Parse()
 
-	file := filepath.Join(dir, "taskmaster.log")
-	logFile, err = os.OpenFile(file, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		fmt.Printf("can't create user log file: %v", err)
-		os.Exit(1)
-	}
-	log.SetOutput(logFile)
 	if os.Getenv("DEBUG") == "true" {
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+		slog.Warn("DEBUG=true")
 	}
 	log.SetPrefix("taskmasterd ")
 }
 
 func main() {
-	defer logFile.Close()
+	if deamon {
+		deamonize()
+		return
+	}
+
 	var cfg taskmaster.Config
-	if err := cfg.Init(os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if err := cfg.Init(configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to init config: %v\n", err)
 		os.Exit(1)
 	}
+
+	logger := util.NewLogger(cfg.Webhook, os.Stdout)
+	slog.SetDefault(slog.New(logger))
 
 	service := taskmaster.New(&cfg)
 	rpcService := taskmaster.NewRPCService(service)
@@ -66,10 +67,7 @@ func main() {
 	defer os.Remove(taskmaster.SocketName)
 
 	// Run service only if the server can listen
-	spinner := util.NewSinner(nil)
-	go spinner.Spin("Waiting AutoStart to complete...")
 	service.AutoStart()()
-	spinner.Stop()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -105,18 +103,18 @@ func handleEvents(sigChan chan os.Signal, lis net.Listener, service *taskmaster.
 		case s := <-sigChan:
 			switch s {
 			case syscall.SIGINT, syscall.SIGTERM:
-				log.Printf("got %s, exiting...", s)
+				slog.Warn("exiting...", slog.String("signal", s.String()))
 				close(done)
 				if err := lis.Close(); err != nil {
-					log.Printf("Error while closing server: %v\n", err)
+					slog.Error("failed to close listener gracefully", slog.Any("error", err))
 				}
 				return
 			case syscall.SIGHUP:
-				log.Printf("Got SIGHUP, reloading...")
+				slog.Info("reloading on SIGHUB")
 				if changed, err := service.Reload(); err != nil {
-					log.Printf("Error: couldn't reload config: %s\n", err)
+					slog.Error("failed to reload", slog.Any("error", err))
 				} else {
-					log.Printf("config reloaded? %t\n", changed)
+					slog.Info("config reloaded", slog.Bool("changed?", changed))
 				}
 			}
 		}
@@ -136,4 +134,43 @@ func handleConns(lis net.Listener) {
 		}
 		go rpc.ServeConn(conn)
 	}
+}
+
+func deamonize() {
+	// Fork and replace the current process with a daemonized version
+	execPath, err := exec.LookPath(os.Args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to find executable path: %v\n", err)
+		os.Exit(1)
+	}
+
+	args := append([]string{"-deamon=false"}, os.Args[1:]...)
+
+	// Set up syscall attributes for the new process
+	sysAttr := &syscall.SysProcAttr{
+		Setsid: true,
+	}
+
+	logFile, err := util.GetLogfile()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to get logfile: %v\n", err)
+		os.Exit(1)
+
+	}
+	defer logFile.Close()
+
+	cmd := exec.Command(execPath, args...)
+	cmd.Env = os.Environ()
+	cmd.SysProcAttr = sysAttr
+	cmd.Stderr = logFile
+	cmd.Stdout = logFile
+
+	err = cmd.Start()
+	if err != nil {
+		fmt.Printf("Failed to daemonize: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Exit the parent process
+	fmt.Println("Daemon started with PID:", cmd.Process.Pid)
 }

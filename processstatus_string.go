@@ -13,11 +13,12 @@ func _() {
 	_ = x[ProcessStatusExited-2]
 	_ = x[ProcessStatusStopped-3]
 	_ = x[ProcessStatusIdle-4]
+	_ = x[ProcessStatusFailed-5]
 }
 
-const _ProcessStatus_name = "UnknownRunningExitedStoppedIdle"
+const _ProcessStatus_name = "UnknownRunningExitedStoppedIdleFailed"
 
-var _ProcessStatus_index = [...]uint8{0, 7, 14, 20, 27, 31}
+var _ProcessStatus_index = [...]uint8{0, 7, 14, 20, 27, 31, 37}
 
 func (i ProcessStatus) String() string {
 	if i < 0 || i >= ProcessStatus(len(_ProcessStatus_index)-1) {

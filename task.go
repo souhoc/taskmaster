@@ -97,35 +97,11 @@ func (t Task) DiffNeedRestart(u Task) bool {
 	if !reflect.DeepEqual(t.Args, u.Args) {
 		return true
 	}
-	if t.NumProcs != u.NumProcs {
-		return false
-	}
 	if t.Umask != u.Umask {
 		return true
 	}
 	if t.WorkingDir != u.WorkingDir {
 		return true
-	}
-	if t.AutoStart != u.AutoStart {
-		return false
-	}
-	if t.AutoRestart != u.AutoRestart {
-		return false
-	}
-	if !reflect.DeepEqual(t.ExitCodes, u.ExitCodes) {
-		return false
-	}
-	if t.StartRetries != u.StartRetries {
-		return false
-	}
-	if t.StartTime != u.StartTime {
-		return false
-	}
-	if t.StopSignal != u.StopSignal {
-		return false
-	}
-	if t.StopTime != u.StopTime {
-		return false
 	}
 	if t.Stdout != u.Stdout {
 		return true

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -44,7 +43,7 @@ func New(cfg *Config, opts ...OptFn) *Service {
 		fn(s)
 	}
 
-	log.Println("service: new instance")
+	slog.Info("new service")
 	return s
 }
 
@@ -72,7 +71,10 @@ func (s *Service) makeProcesses(tasks map[string]*Task) map[string]*Process {
 			processName := fmt.Sprintf(processNameFormat, taskName, i)
 			process, err := s.newProcess(processName, task)
 			if err != nil {
-				log.Printf("service: init process failed: %s: %v\n", processName, err)
+				slog.Error("init process failed",
+					slog.String("process", processName),
+					slog.Any("error", err),
+				)
 				continue
 			}
 
@@ -122,13 +124,17 @@ func (s *Service) Start(name string) error {
 			slog.Info("success",
 				slog.String("process", name),
 				slog.Int("pid", tmpCmd.Process.Pid),
+				slog.Int("tries", process.startCount),
 			)
-			process.status = ProcessStatusRunning
+			s.processes[name].status = ProcessStatusRunning
 			return nil
+		}
+		if !process.ShouldRestart() {
+			break
 		}
 	}
 
-	process.status = ProcessStatusIdle
+	process.status = ProcessStatusFailed
 	return ErrProcessIsNotRunning
 }
 
@@ -172,12 +178,13 @@ func (s *Service) handleProcessCompletion(name string) {
 
 	if shouldRetryStart {
 		process.cmd, err = s.newCmd(name, process.task)
-		process.status = ProcessStatusIdle
+		process.status = ProcessStatusFailed
 		if err != nil {
 			slog.Error("failed",
 				slog.String("process", name),
 				slog.Any("newCmd", err))
 		}
+		slog.Debug("new cmd, shouldRetry")
 		return
 	}
 
@@ -262,6 +269,12 @@ func (s *Service) Status(name string) ProcessStatus {
 	defer s.mu.Unlock()
 
 	process, exists := s.processes[name]
+	slog.Debug(
+		"status",
+		slog.String("process", name),
+		slog.Bool("exists", exists),
+		slog.Any("processes", s.processes),
+	)
 	if !exists || process == nil {
 		return ProcessStatusUnknown
 	}
@@ -339,7 +352,7 @@ func (s *Service) newCmd(name string, task *Task) (*exec.Cmd, error) {
 	}
 
 	if task.Stdout == "" {
-		cmd.Stdout = s.out
+		cmd.Stdout = nil
 	} else {
 		file, err := os.OpenFile(task.Stdout, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
@@ -349,7 +362,7 @@ func (s *Service) newCmd(name string, task *Task) (*exec.Cmd, error) {
 	}
 
 	if task.Stderr == "" {
-		cmd.Stderr = s.out
+		cmd.Stderr = nil
 	} else {
 		file, err := os.OpenFile(task.Stderr, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
@@ -426,8 +439,8 @@ func (s *Service) List() []string {
 func (s *Service) Batch(fn func(name string) error, names []string) error {
 	errC := make(chan error, len(names))
 	var wg sync.WaitGroup
-	wg.Add(len(names))
 
+	wg.Add(len(names))
 	for i, name := range names {
 		go func() {
 			defer wg.Done()
@@ -483,11 +496,10 @@ func (s *Service) Reload() (changed bool, err error) {
 			keys = append(keys, name)
 		}
 	}
-
-	s.mu.Unlock()
 	slog.Debug("batch stop",
 		slog.Any("names", keys),
 	)
+	s.mu.Unlock()
 	if err := s.Batch(s.Stop, keys); err != nil {
 		return false, fmt.Errorf("error while stopping old processes: %w", err)
 	}
@@ -497,6 +509,15 @@ func (s *Service) Reload() (changed bool, err error) {
 	// it to the new processes. Else, restart it.
 	keys = keys[:0]
 	for _, name := range commonProcesses(newProcesses, s.processes) {
+		slog.Debug("commonProcesses",
+			slog.String("process", name),
+			slog.String("status", s.processes[name].status.String()),
+			slog.Bool("DiffNeedRestart", s.processes[name].task.DiffNeedRestart(*newProcesses[name].task)),
+			slog.Int("old_task_proces", s.processes[name].task.NumProcs),
+			slog.String("old_task_proces", s.processes[name].task.Stdout),
+			slog.Int("new_task_proces", newProcesses[name].task.NumProcs),
+			slog.String("new_task_proces", newProcesses[name].task.Stdout),
+		)
 		if s.processes[name].status != ProcessStatusRunning {
 			continue
 		}
@@ -513,6 +534,7 @@ func (s *Service) Reload() (changed bool, err error) {
 	if err := s.Batch(s.Stop, keys); err != nil {
 		return false, fmt.Errorf("error while stopping for restart processes: %w", err)
 	}
+	time.Sleep(time.Millisecond * 500)
 	s.mu.Lock()
 
 	slog.Debug("processes switch",

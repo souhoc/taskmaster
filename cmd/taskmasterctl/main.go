@@ -3,15 +3,16 @@ package main
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"net/rpc"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/souhoc/taskmaster"
 	"github.com/souhoc/taskmaster/term"
+	"github.com/souhoc/taskmaster/util"
 )
 
 var (
@@ -19,29 +20,26 @@ var (
 )
 
 func init() {
-	dir, err := os.UserCacheDir()
-	if err == nil {
-		dir = filepath.Join(dir, "taskmaster")
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		fmt.Printf("can't create user cache dir: %v", err)
-	}
-
-	file := filepath.Join(dir, "taskmaster.log")
-	logFile, err = os.OpenFile(file, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	var err error
+	logFile, err = util.GetLogfile()
 	if err != nil {
-		fmt.Printf("can't create user log file: %v", err)
+		fmt.Fprintf(os.Stderr, "failed to get logfile: %v\n", err)
 		os.Exit(1)
 	}
+
 	log.SetOutput(logFile)
 	if os.Getenv("DEBUG") == "true" {
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
+		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
 	log.SetPrefix("taskmasterctl ")
+	logger := util.NewLogger("", logFile)
+	slog.SetDefault(slog.New(logger))
 }
 
 func main() {
+
 	client, err := rpc.Dial("unix", taskmaster.SocketName)
 	if err != nil {
 		opErr, ok := err.(*net.OpError)
@@ -74,7 +72,7 @@ func handleSignals(sigChan chan os.Signal, program *term.Term) {
 		case s := <-sigChan:
 			switch s {
 			case syscall.SIGINT, syscall.SIGTERM:
-				log.Printf("Terminated by signal: %s\n", s)
+				slog.Warn("exiting...", slog.String("signal", s.String()))
 				program.Stop()
 				return
 			}

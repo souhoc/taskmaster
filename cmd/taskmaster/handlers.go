@@ -29,7 +29,13 @@ func (h *Handler) Status(args ...string) error {
 
 	for _, arg := range args[1:] {
 		status := h.service.Status(arg)
-		if pid, err := h.service.GetPid(arg); status == taskmaster.ProcessStatusRunning && err == nil {
+		if status == taskmaster.ProcessStatusUnknown {
+			fmt.Printf("%s %s\n", arg, status)
+			continue
+		}
+
+		pid, err := h.service.GetPid(arg)
+		if status == taskmaster.ProcessStatusRunning && err == nil {
 			fmt.Printf("%s %s %d\n", arg, status, pid)
 			continue
 		}
