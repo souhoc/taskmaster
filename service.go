@@ -181,7 +181,6 @@ func (s *Service) handleProcessCompletion(name string) {
 				slog.String("process", name),
 				slog.Any("newCmd", err))
 		}
-		slog.Debug("new cmd, shouldRetry")
 		return
 	}
 
@@ -266,12 +265,6 @@ func (s *Service) Status(name string) ProcessStatus {
 	defer s.mu.Unlock()
 
 	process, exists := s.processes[name]
-	slog.Debug(
-		"status",
-		slog.String("process", name),
-		slog.Bool("exists", exists),
-		slog.Any("processes", s.processes),
-	)
 	if !exists || process == nil {
 		return ProcessStatusUnknown
 	}
@@ -438,19 +431,12 @@ func (s *Service) Batch(fn func(name string) error, names []string) error {
 	var wg sync.WaitGroup
 
 	wg.Add(len(names))
-	for i, name := range names {
+	for _, name := range names {
 		go func() {
 			defer wg.Done()
 			err := fn(name)
 			if err != nil {
 				errC <- fmt.Errorf("%s: %w", name, err)
-				slog.Debug("Batch",
-					slog.String("name", name),
-					slog.Any("error", err),
-					slog.Int("len(names)", len(names)),
-					slog.Any("names", names),
-					slog.Int("i", i),
-				)
 				return
 			}
 			errC <- nil
