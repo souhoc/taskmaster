@@ -120,7 +120,7 @@ func (s *Service) Start(name string) error {
 
 		// Wait StartTime to see if the process successfully started.
 		time.Sleep(process.task.StartTime)
-		if tmpCmd.ProcessState == nil {
+		if tmpCmd.ProcessState == nil && process.status == ProcessStatusRunning {
 			slog.Info("success",
 				slog.String("process", name),
 				slog.Int("pid", tmpCmd.Process.Pid),
@@ -129,6 +129,7 @@ func (s *Service) Start(name string) error {
 			s.processes[name].status = ProcessStatusRunning
 			return nil
 		}
+		time.Sleep(time.Millisecond * 100)
 	}
 
 	process.status = ProcessStatusFailed
@@ -334,11 +335,6 @@ func (s *Service) newCmd(name string, task *Task) (*exec.Cmd, error) {
 			env = append(env, fmt.Sprintf("%s=%s", k, v))
 		}
 		cmd.Env = env
-	}
-
-	if task.Umask != 0 {
-		oldUmask := syscall.Umask(task.Umask)
-		defer syscall.Umask(oldUmask)
 	}
 
 	if task.Stdout == "" {

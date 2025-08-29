@@ -2,6 +2,7 @@ package taskmaster
 
 import (
 	"os/exec"
+	"syscall"
 	"time"
 )
 
@@ -29,6 +30,10 @@ type Process struct {
 func (p *Process) Start() error {
 	p.startAt = time.Now()
 	p.startCount++
+	if p.task.Umask != 0 {
+		oldUmask := syscall.Umask(p.task.Umask)
+		defer syscall.Umask(oldUmask)
+	}
 	return p.cmd.Start()
 }
 
