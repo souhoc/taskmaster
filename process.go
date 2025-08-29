@@ -42,7 +42,7 @@ func (p *Process) Start() error {
 func (p Process) ShouldRestart() bool {
 	return p.cmd.ProcessState != nil &&
 		time.Since(p.startAt) > p.task.StartTime &&
-		p.task.shouldRestart(p.cmd.ProcessState.ExitCode())
+		p.task.shouldRestart(p.cmd.ProcessState.ExitCode()) && p.status != ProcessStatusStopped
 }
 
 // ShouldRetryStart returns true if the process didn't start successfully and

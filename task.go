@@ -138,10 +138,6 @@ func (t Task) String() string {
 }
 
 func (t Task) shouldRestart(exitCode int) bool {
-	if exitCode == -1 {
-		return false
-	}
-
 	switch strings.ToLower(string(t.AutoRestart)) {
 	case "never", "":
 		return false

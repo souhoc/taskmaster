@@ -120,7 +120,7 @@ func (s *Service) Start(name string) error {
 
 		// Wait StartTime to see if the process successfully started.
 		time.Sleep(process.task.StartTime)
-		if tmpCmd.ProcessState == nil && process.status == ProcessStatusRunning {
+		if tmpCmd.ProcessState == nil {
 			slog.Info("success",
 				slog.String("process", name),
 				slog.Int("pid", tmpCmd.Process.Pid),
@@ -163,17 +163,6 @@ func (s *Service) handleProcessCompletion(name string) {
 		return
 	}
 
-	if process.cmd.ProcessState.ExitCode() == -1 {
-		// Got killed. dont go further.
-		process.done <- nil
-		if err := s.resetProcess(name, ProcessStatusStopped); err != nil {
-			slog.Error("failed",
-				slog.String("process", name),
-				slog.Any("resetProcess", err))
-		}
-		return
-	}
-
 	if shouldRetryStart {
 		process.cmd, err = s.newCmd(name, process.task)
 		process.status = ProcessStatusFailed
@@ -202,7 +191,11 @@ func (s *Service) handleProcessCompletion(name string) {
 	}
 
 	process.done <- err
-	if err := s.resetProcess(name, ProcessStatusExited); err != nil {
+	status := ProcessStatusExited
+	if process.status == ProcessStatusStopped {
+		status = ProcessStatusStopped
+	}
+	if err := s.resetProcess(name, status); err != nil {
 		slog.Error("failed",
 			slog.String("process", name),
 			slog.Any("resetProcess", err))
@@ -241,6 +234,8 @@ func (s *Service) Stop(name string) error {
 	default:
 		return fmt.Errorf("unsupported stop signal: %s", process.task.StopSignal)
 	}
+
+	process.status = ProcessStatusStopped
 
 	if err := process.cmd.Process.Signal(sig); err != nil {
 		return fmt.Errorf("failed to send signal %s to task %s: %w", sig, name, err)
